@@ -12,4 +12,5 @@ endif()
 project ("zephyr")
 
 # Include sub-projects.
+add_subdirectory ("sandbox")
 add_subdirectory ("zephyr")
