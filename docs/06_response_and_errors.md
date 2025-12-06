@@ -1,14 +1,31 @@
-# 6. HttpResponse & Error Handling
+# 6. Response & Error handling
+
+## 6.1 HttpResponse (MVP)
 
 ```cpp
-enum class ErrorCode { NotFound, BadRequest, InternalError };
+struct HttpResponse {
+    std::string body;
+
+    static HttpResponse html(std::string_view text) {
+        return HttpResponse{std::string{text}};
+    }
+};
 ```
 
-In MVP, we only support HTML.
+## 6.2 Handler return type
 
 ```cpp
 std::expected<HttpResponse, ErrorCode>
 handler(const InternalMessage&);
 ```
 
-404/400/500 mapped automatically.
+## 6.3 Error mapping
+
+| Error | HTTP |
+|-------|------|
+| NotFound | 404 |
+| BadRequest | 400 |
+| InternalError | 500 |
+
+Future:
+- JSON, headers, custom codes

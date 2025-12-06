@@ -1,19 +1,26 @@
-# 1. Framework Architecture
+# 1. Architecture
 
-Zephyr consists of the following layers:
+Zephyr consists of several cooperating layers. Networking and event loop are provided by SvarogIO. Zephyr adds routing, controllers, plugin integration and application tooling.
 
-`Client -> ProtocolPlugin -> InternalMessage -> Router -> ControllerStrand -> Handler -> Response`
+## 1.1 High-level flow
 
-SvarogIO is responsible for I/O and event loops.
+`Client -> ProtocolPlugin -> InternalMessage -> Router -> ControllerStrand -> Handler -> Response -> Protocol encode -> Write`
 
-## 1.1. Components
+## 1.2 Main components
 
-- **Application** - plugin composition
-- **Router** - compile-time route mapping -> handler
-- **ControllerStrand** - single-thread context for handlers
-- **InternalMessage** - universal request format
-- **HttpResponse** - MVP response (HTML only)
+| Component | Responsibility |
+|---|---|
+| Application | Composition of plugins and services |
+| Plugin | Adds a feature/protocol (HTTP, DB, Metrics...) |
+| Router | Compile-time mapping of request → handler |
+| Controller | User logic and route definitions |
+| ControllerStrand | Executes handlers without multi-thread concerns |
+| InternalMessage | Common internal request format |
+| Response | Handler output model (MVP: HTML only) |
 
-## 1.2. Flow
+## 1.3 Why this architecture?
 
-`socket_accept -> HTTP decode -> InternalMessage -> Router -> ControllerStrand -> Handler -> HttpResponse -> encode -> write`
+- Predictable performance (no dynamic dispatch)
+- Easy to extend via plugins
+- Handlers run single-thread → no mutex headaches
+- Future-proof for multi-protocol routing

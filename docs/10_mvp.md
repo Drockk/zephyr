@@ -1,19 +1,25 @@
-# MVP Implementation Guide
+# MVP Roadmap
 
-The goal is to run:
+Goal: Serve HTTP request and reply "Hello".
 
-GET "/" → HTML "Hello World"
+## Required
 
-MVP tasks:
-
-- Application<> + Plugin Loader
+- Core Application type
+- Plugin loader system
+- HTTP Listener + decoder
+- InternalMessage model
 - Router (GET/POST)
-- HTTP Plugin (listener + decode + encode)
-- ControllerStrand
+- Controller macros
 - HttpResponse::html
+- Response encoding
 
-Shortcomings:
+## Result app
 
-- no middleware
-- JSON missing
-- no DB
+```cpp
+struct Hello {
+    ROUTES(GET("/", { return HttpResponse::html("Hello World"); }));
+};
+
+using App = Application<Http<8080>, Controller<Hello>>;
+App{}.start();
+```

@@ -1,12 +1,27 @@
-# 4. Protocol Plugins
+# 4. Protocol plugins
 
-The HTTP plugin is the only one required in MVP.
+## 4.1 HTTP (MVP)
 
-Usage example:
+Features included:
+
+- TCP listener via SvarogIO
+- Request decode
+- Routing -> Handler
+- HTML Response encode
+
+Example:
 
 ```cpp
-using App = Application<Controller<Hello>, Http<8080>>;
+using App = Application<Http<8080>, Controller<Hello>>;
 App{}.start();
 ```
 
-UDP, WebSocket, gRPC - in the roadmap.
+### Future plugins
+
+| Plugin | Purpose |
+|--------|---------|
+| UDP | Lightweight message handling |
+| WebSocket | Real-time communication |
+| gRPC | RPC communication |
+| DB(Postgre/SQLite/Redis) | Data access via plugins |
+| Metrics/Prometheus | Observability |

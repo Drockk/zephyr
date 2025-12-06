@@ -1,7 +1,15 @@
 # 7. Test Strategy
 
-- Unit: router, handler, response
-- Integration: HTTP plugin + routing
-- E2E: Hello World application
+## Unit tests
 
-Each module must have tests.
+- Router compile-time match
+- HttpResponse builder
+- InternalMessage utils
+
+## Integration tests
+
+- HTTP request -> controller -> response
+
+## E2E
+
+- Run sample app -> GET "/" -> "Hello"
