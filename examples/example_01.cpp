@@ -1,7 +1,15 @@
-import zephyr;
+import zephyr.application;
+import zephyr.dummyPlugin;
 
-int main() {
-    zephyr::Zephyr zephyr;
-    zephyr.init();
+using App = zephyr::Application<
+    zephyr::DummyPlugin
+>;
+
+int main()
+{
+    App app;
+
+    app.start();
+
     return 0;
 }

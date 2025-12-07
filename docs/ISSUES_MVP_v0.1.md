@@ -31,7 +31,7 @@ Create initial project structure and build system.
 
 **Tasks:**  
 
-- [ ] Create folder layout:
+- [+] Create folder layout:
 
     ```sh
     /src
@@ -40,9 +40,9 @@ Create initial project structure and build system.
     /examples
     ```
 
-- [ ] Add `CMakeLists.txt` (minimal library target)
+- [+] Add `CMakeLists.txt` (minimal library target)
 - [ ] Add `.clang-format` (optional)
-- [ ] Add license file (MIT recommended)
+- [+] Add license file (MIT recommended)
 
 **Definition of Done:**  
 Running `cmake . && make` builds empty project target.
@@ -56,9 +56,9 @@ Basic application container which stores plugin pack.
 
 Requirements:
 
-- [ ] `template<class... Plugins> struct Application { ... };`
-- [ ] `.start()` calls plugin lifecycle hooks (empty for now)
-- [ ] Construct-only compile-time plugin registration
+- [+] `template<class... Plugins> struct Application { ... };`
+- [+] `.start()` calls plugin lifecycle hooks (empty for now)
+- [+] Construct-only compile-time plugin registration
 
 **DoD:**  
 
@@ -74,9 +74,9 @@ Define plugin contract and static integration with Application.
 
 **Tasks:**  
 
-- [ ] Create `PluginConcept` or CRTP base
-- [ ] `init()` and `start()` lifecycle hooks
-- [ ] Plugins passed as template parameters
+- [+] Create `PluginConcept` or CRTP base
+- [+] `init()` and `start()` lifecycle hooks
+- [+] Plugins passed as template parameters
 
 **DoD:**  
 Compile with dummy plugin:
