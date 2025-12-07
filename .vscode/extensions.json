@@ -1,0 +1,18 @@
+{
+    "recommendations": [
+        // C++ development
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        
+        // Code formatting
+        "xaver.clang-format",
+        
+        // Static analysis
+        "llvm-vs-code-extensions.vscode-clangd",
+        "notskm.clang-tidy",
+        
+        // Code quality
+        "streetsidesoftware.code-spell-checker"
+    ]
+}
