@@ -1,5 +1,7 @@
 #pragma once
 
+#include <concepts>
+
 namespace zephyr::core
 {
 enum class Result

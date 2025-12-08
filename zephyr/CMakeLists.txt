@@ -17,21 +17,12 @@ target_sources(zephyr
         FILE_SET HEADERS FILES
         include/zephyr/core/application.hpp
         include/zephyr/core/plugin.hpp
+        include/zephyr/io/ioUringAcceptSender.hpp
+        include/zephyr/io/ioUringContext.hpp
+        include/zephyr/io/ioUringReadSender.hpp
         include/zephyr/plugins/dummyPlugin.hpp
     PRIVATE
-        source/core/application.cpp
-
-    # PUBLIC
-    #     FILE_SET CXX_MODULES FILES
-    #     core/application.cppm
-    #     core/plugin.cppm
-    #     io/ioUringContext.cppm
-    #     plugins/dummyPlugin.cppm
-    #     zephyr.cppm
-    # PUBLIC
-    #     FILE_SET HEADERS FILES
-    #     io/ioUringAcceptSender.hpp
-    #     io/ioUringContext.hpp
+        source/io/ioUringContext.cpp
 )
 
 target_link_libraries(zephyr

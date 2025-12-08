@@ -1,3 +1,14 @@
 {
+    // Prefer clangd over MSVC IntelliSense
+    "C_Cpp.intelliSenseEngine": "disabled",
+
+    // clangd setup
+    "clangd.path": "clangd",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/build/debug",
+        "--header-insertion=never"
+    ],
+
+    // Keep default standard hint
     "C_Cpp.default.cppStandard": "c++23"
 }

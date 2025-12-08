@@ -1,8 +1,8 @@
-import zephyr.application;
-import zephyr.dummyPlugin;
+#include <zephyr/core/application.hpp>
+#include <zephyr/plugins/dummyPlugin.hpp>
 
-using App = zephyr::Application<
-    zephyr::DummyPlugin
+using App = zephyr::core::Application<
+    zephyr::plugins::DummyPlugin
 >;
 
 int main()

@@ -7,6 +7,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         gcc-14 \
         g++-14 \
         gdb \
+        clangd \
         liburing-dev \
         pkg-config \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 200 \
