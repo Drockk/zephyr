@@ -71,17 +71,72 @@ public:
     auto async_accept(int t_listen_fd, sockaddr* t_address, socklen_t* t_address_length,
                         std::function<void(int)> t_handler)
     {
-        auto operation_id = m_next_operation_id++;
-        m_pending_operations[operation_id] = t_handler;
+        const auto operation_id = m_next_operation_id++;
+        m_pending_operations[operation_id] = std::move(t_handler);
 
         auto* sqe = io_uring_get_sqe(&m_ring);
         if (!sqe) {
             std::cerr << "Failed to get submission queue entry\n";
             m_pending_operations.erase(operation_id);
-            return static_cast<uint64_t>(0);
+            return 0ul;
         }
 
         io_uring_prep_accept(sqe, t_listen_fd, t_address, t_address_length, 0);
+        io_uring_sqe_set_data(sqe, reinterpret_cast<void*>(operation_id));
+        io_uring_submit(&m_ring);
+
+        return operation_id;
+    }
+
+    auto async_read(int t_fd, void* t_buffer, size_t t_length,
+                    std::function<void(int)> t_handler)
+    {
+        const auto operation_id = m_next_operation_id++;
+        m_pending_operations[operation_id] = std::move(t_handler);
+
+        auto* sqe = io_uring_get_sqe(&m_ring);
+        if (!sqe) {
+            m_pending_operations.erase(operation_id);
+            return 0ul;
+        }
+
+        io_uring_prep_read(sqe, t_fd, t_buffer, t_length, 0);
+        io_uring_sqe_set_data(sqe, reinterpret_cast<void*>(operation_id));
+        io_uring_submit(&m_ring);
+
+        return operation_id;
+    }
+
+    auto async_write(int t_fd, const void* t_buffer, size_t t_length,
+                    std::function<void(int)> t_handler)
+    {
+        const auto operation_id = m_next_operation_id++;
+        m_pending_operations[operation_id] = std::move(t_handler);
+
+        auto* sqe = io_uring_get_sqe(&m_ring);
+        if (!sqe) {
+            m_pending_operations.erase(operation_id);
+            return 0ul;
+        }
+
+        io_uring_prep_write(sqe, t_fd, t_buffer, t_length, 0);
+        io_uring_sqe_set_data(sqe, reinterpret_cast<void*>(operation_id));
+        io_uring_submit(&m_ring);
+
+        return operation_id;
+    }
+
+    auto async_close(int t_fd, std::function<void(int)> t_handler)
+    {
+        const auto operation_id = m_next_operation_id++;
+
+        auto* sqe = io_uring_get_sqe(&m_ring);
+        if (!sqe) {
+            m_pending_operations.erase(operation_id);
+            return 0ul;
+        }
+
+        io_uring_prep_close(sqe, t_fd);
         io_uring_sqe_set_data(sqe, reinterpret_cast<void*>(operation_id));
         io_uring_submit(&m_ring);
 

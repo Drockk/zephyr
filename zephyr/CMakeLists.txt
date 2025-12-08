@@ -15,11 +15,12 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 target_sources(zephyr
     PUBLIC
         FILE_SET CXX_MODULES FILES
-        core/application.cpp
-        core/plugin.cpp
-        io/ioUringContext.cpp
-        plugins/dummyPlugin.cpp
-        zephyr.cpp
+        core/application.cppm
+        core/plugin.cppm
+        io/ioUringAcceptSender.cppm
+        io/ioUringContext.cppm
+        plugins/dummyPlugin.cppm
+        zephyr.cppm
 )
 
 target_link_libraries(zephyr

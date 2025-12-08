@@ -10,7 +10,12 @@
 			"extensions": [
 				"llvm-vs-code-extensions.vscode-clangd",
 				"mhutchie.git-graph",
-				"ryu1kn.text-marker"
+				"ryu1kn.text-marker",
+				"streetsidesoftware.code-spell-checker",
+				"xaver.clang-format",
+				"ms-vscode.cpptools-extension-pack",
+				"GitHub.copilot"
+
 			]
 		}
 	}
