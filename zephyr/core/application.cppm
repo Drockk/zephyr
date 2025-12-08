@@ -10,12 +10,7 @@ import zephyr.plugin;
 
 namespace zephyr
 {
-enum class application_error
-{
-    init,
-    run,
-    shutdown
-};
+
 
 
 export template<PluginConcept... Plugins> class Application

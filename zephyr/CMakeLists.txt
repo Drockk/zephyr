@@ -1,4 +1,4 @@
-add_library(zephyr)
+add_library(zephyr SHARED)
 
 include(../cmake/CPM.cmake)
 
@@ -14,21 +14,34 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 
 target_sources(zephyr
     PUBLIC
-        FILE_SET CXX_MODULES FILES
-        core/application.cppm
-        core/plugin.cppm
-        io/ioUringAcceptSender.cppm
-        io/ioUringContext.cppm
-        plugins/dummyPlugin.cppm
-        zephyr.cppm
+        FILE_SET HEADERS FILES
+        include/zephyr/core/application.hpp
+        include/zephyr/core/plugin.hpp
+        include/zephyr/plugins/dummyPlugin.hpp
+    PRIVATE
+        source/core/application.cpp
+
+    # PUBLIC
+    #     FILE_SET CXX_MODULES FILES
+    #     core/application.cppm
+    #     core/plugin.cppm
+    #     io/ioUringContext.cppm
+    #     plugins/dummyPlugin.cppm
+    #     zephyr.cppm
+    # PUBLIC
+    #     FILE_SET HEADERS FILES
+    #     io/ioUringAcceptSender.hpp
+    #     io/ioUringContext.hpp
 )
 
 target_link_libraries(zephyr
-    STDEXEC::stdexec
-    ${LIBURING_LIBRARIES}
+    PUBLIC
+        STDEXEC::stdexec
+        ${LIBURING_LIBRARIES}
 )
 
 target_include_directories(zephyr
     PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${LIBURING_INCLUDE_DIRS}
 )

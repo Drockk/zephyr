@@ -1,25 +1,23 @@
-module;
+#pragma once
 
 #include <iostream>
 
-export module zephyr.dummyPlugin;
+#include "zephyr/core/plugin.hpp"
 
-import zephyr.plugin;
-
-namespace zephyr
+namespace zephyr::plugins
 {
-export struct DummyPlugin
+struct DummyPlugin
 {
     auto init()
     {
         std::cout << "Init DummyPlugin\n";
-        return Result::ok;
+        return core::Result::ok;
     }
 
     auto start()
     {
         std::cout << "Start DummyPlugin\n";
-        return Result::ok;
+        return core::Result::ok;
     }
 };
 }

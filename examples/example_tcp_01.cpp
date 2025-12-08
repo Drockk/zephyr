@@ -5,7 +5,7 @@
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
 
-import zephyr.io.ioUringContext;
+#include "zephyr/io/ioUringContext.hpp"
 
 int main()
 {
