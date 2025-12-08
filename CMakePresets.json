@@ -19,7 +19,9 @@
                 "CMAKE_CXX_EXTENSIONS": "OFF",
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP": "OFF",
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF"
             }
         },
         {
@@ -31,7 +33,9 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_CXX_STANDARD": "23",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP": "OFF",
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF"
             }
         }
     ],

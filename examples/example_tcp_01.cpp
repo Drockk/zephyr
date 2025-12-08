@@ -5,7 +5,8 @@
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
 
-#include "zephyr/io/ioUringContext.hpp"
+#include <zephyr/execution/strandScheduler.hpp>
+#include <zephyr/io/ioUringContext.hpp>
 
 int main()
 {
@@ -19,7 +20,9 @@ int main()
         });
 
         exec::static_thread_pool thread_pool{ 4 };
-        // auto accept_strand = StrandScheduler{};
+
+        auto pool_scheduler = thread_pool.get_scheduler();
+        auto accept_strand = zephyr::execution::make_strand_scheduler(pool_scheduler);
 
         auto my_handler = [](std::string& t_data) {
             std::cout << std::format("\nLAMBDA HANDLER CALLED\n");

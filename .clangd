@@ -1,0 +1,10 @@
+CompileFlags:
+  # Drop GCC-only module flags so clangd can parse the TU.
+  Remove:
+    - "-fmodules-ts"
+    - "-fmodule-mapper=*"
+    - "-fdeps-format=*"
+    - "-fconcepts-diagnostics-depth=*"
+  Add:
+    - "-std=c++23"
+  Compiler: "/usr/bin/g++"
