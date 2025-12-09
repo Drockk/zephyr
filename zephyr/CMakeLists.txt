@@ -15,10 +15,15 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 target_sources(zephyr
     PUBLIC
         FILE_SET HEADERS FILES
+        "include/zephyr/context/context.hpp"
         "include/zephyr/core/application.hpp"
         "include/zephyr/core/plugin.hpp"
+        "include/zephyr/execution/strandOp.hpp"
+        "include/zephyr/execution/strandState.hpp"
+        "include/zephyr/http/httpMessages.hpp"
         "include/zephyr/io/ioUringContext.hpp"
         "include/zephyr/plugins/dummyPlugin.hpp"
+        "include/zephyr/utils/anySender.hpp"
     PRIVATE
         "source/io/ioUringContext.cpp"
 )

@@ -1,10 +1,14 @@
+#include <zephyr/context/context.hpp>
+#include <zephyr/execution/strandOp.hpp>
+#include <zephyr/execution/strandState.hpp>
+#include <zephyr/http/httpMessages.hpp>
+#include <zephyr/io/ioUringContext.hpp>
+#include <zephyr/utils/anySender.hpp>
+
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <exec/inline_scheduler.hpp>
-#include <exec/any_sender_of.hpp>
 #include <exec/single_thread_context.hpp>
-
-#include <liburing.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -19,59 +23,17 @@
 #include <memory>
 #include <regex>
 #include <optional>
-#include <queue>
 #include <iostream>
 #include <cstring>
 #include <thread>
 #include <chrono>
 #include <span>
 
-#include <zephyr/io/ioUringContext.hpp>
-
 namespace ex = stdexec;
-template<class... Sigs>
-using any_sender_of = exec::any_receiver_ref<ex::completion_signatures<Sigs...>>::template any_sender<>;
 
 // ============================================================================
-// TYPY PODSTAWOWE - Struktury danych dla HTTP i UDP
+// TYPY PODSTAWOWE - Struktury danych UDP
 // ============================================================================
-
-struct HttpRequest {
-    std::string method;
-    std::string path;
-    std::string version;
-    std::map<std::string, std::string> headers;
-    std::map<std::string, std::string> path_params;
-    std::string body;
-};
-
-struct HttpResponse {
-    int status_code = 200;
-    std::string status_text = "OK";
-    std::map<std::string, std::string> headers;
-    std::string body;
-    
-    static HttpResponse ok(std::string body_text) {
-        HttpResponse r;
-        r.body = std::move(body_text);
-        return r;
-    }
-    
-    static HttpResponse json(std::string json_text) {
-        HttpResponse r;
-        r.headers["Content-Type"] = "application/json";
-        r.body = std::move(json_text);
-        return r;
-    }
-    
-    static HttpResponse not_found() {
-        HttpResponse r;
-        r.status_code = 404;
-        r.status_text = "Not Found";
-        r.body = "404 Not Found";
-        return r;
-    }
-};
 
 struct UdpPacket {
     std::string source_ip;
@@ -86,8 +48,8 @@ struct UdpPacket {
 
 class HttpParser {
 public:
-    static std::optional<HttpRequest> parse(const std::string& raw) {
-        HttpRequest req;
+    static std::optional<zephyr::http::HttpRequest> parse(const std::string& raw) {
+        zephyr::http::HttpRequest req;
         
         auto first_line_end = raw.find("\r\n");
         if (first_line_end == std::string::npos) return std::nullopt;
@@ -138,7 +100,7 @@ public:
 
 class HttpSerializer {
 public:
-    static std::string serialize(const HttpResponse& resp) {
+    static std::string serialize(const zephyr::http::HttpResponse& resp) {
         std::string result = "HTTP/1.1 ";
         result += std::to_string(resp.status_code) + " ";
         result += resp.status_text + "\r\n";
@@ -158,37 +120,17 @@ public:
 };
 
 // ============================================================================
-// CONTEXT - Współdzielone zasoby
-// ============================================================================
-
-class Context {
-    std::map<std::string, std::shared_ptr<void>> resources;
-public:
-    template<typename T>
-    void set(const std::string& name, std::shared_ptr<T> resource) {
-        resources[name] = resource;
-    }
-    
-    template<typename T>
-    std::shared_ptr<T> get(const std::string& name) const {
-        auto it = resources.find(name);
-        if (it == resources.end()) return nullptr;
-        return std::static_pointer_cast<T>(it->second);
-    }
-};
-
-// ============================================================================
 // HTTP ROUTER - Pattern matching i routing
 // ============================================================================
 
 class HttpRoute {
 public:
-    using HttpSender = any_sender_of<
-        ex::set_value_t(HttpResponse),
+    using HttpSender = zephyr::utils::any_sender_of<
+        ex::set_value_t(zephyr::http::HttpResponse),
         ex::set_error_t(std::exception_ptr),
         ex::set_stopped_t()
     >;
-    using Handler = std::function<HttpSender(const HttpRequest&, const Context&)>;
+    using Handler = std::function<HttpSender(const zephyr::http::HttpRequest&, const zephyr::context::Context&)>;
     
 private:
     std::string method;
@@ -219,7 +161,7 @@ public:
         return params;
     }
     
-    HttpSender invoke(HttpRequest req, const Context& ctx) const {
+    HttpSender invoke(zephyr::http::HttpRequest req, const zephyr::context::Context& ctx) const {
         req.path_params = extract_params(req.path);
         return handler(req, ctx);
     }
@@ -256,10 +198,10 @@ private:
 class HttpRouter {
     using HttpSender = HttpRoute::HttpSender;
     std::vector<HttpRoute> routes;
-    std::shared_ptr<Context> context;
+    std::shared_ptr<zephyr::context::Context> context;
     
 public:
-    HttpRouter() : context(std::make_shared<Context>()) {}
+    HttpRouter() : context(std::make_shared<zephyr::context::Context>()) {}
     
     template<typename T>
     void add_resource(const std::string& name, std::shared_ptr<T> res) {
@@ -270,7 +212,7 @@ public:
     template<typename SyncHandler>
     void add_route(std::string method, std::string path, SyncHandler handler) {
         auto async_handler = [h = std::move(handler)]
-            (const HttpRequest& req, const Context& ctx) {
+            (const zephyr::http::HttpRequest& req, const zephyr::context::Context& ctx) {
             return HttpSender{ex::just(h(req, ctx))};
         };
         routes.emplace_back(std::move(method), std::move(path), std::move(async_handler));
@@ -290,19 +232,19 @@ public:
         routes.emplace_back(
             "GET",
             std::move(path),
-            [h = std::move(handler)](const HttpRequest& req, const Context& ctx) {
+            [h = std::move(handler)](const zephyr::http::HttpRequest& req, const zephyr::context::Context& ctx) {
                 return HttpSender{h(req, ctx)};
             }
         );
     }
     
-    HttpSender route(HttpRequest req) const {
+    HttpSender route(zephyr::http::HttpRequest req) const {
         for (const auto& r : routes) {
             if (r.matches(req.method, req.path)) {
                 return r.invoke(std::move(req), *context);
             }
         }
-        return HttpSender{ex::just(HttpResponse::not_found())};
+        return HttpSender{ex::just(zephyr::http::HttpResponse::not_found())};
     }
 };
 
@@ -312,12 +254,12 @@ public:
 
 class UdpRouter {
 public:
-    using UdpSender = any_sender_of<
+    using UdpSender = zephyr::utils::any_sender_of<
         ex::set_value_t(std::optional<std::vector<uint8_t>>),
         ex::set_error_t(std::exception_ptr),
         ex::set_stopped_t()
     >;
-    using Handler = std::function<UdpSender(const UdpPacket&, const Context&)>;
+    using Handler = std::function<UdpSender(const UdpPacket&, const zephyr::context::Context&)>;
     
 private:
     struct Route {
@@ -326,15 +268,15 @@ private:
     };
     
     std::vector<Route> routes;
-    std::shared_ptr<Context> context;
+    std::shared_ptr<zephyr::context::Context> context;
     
 public:
-    UdpRouter() : context(std::make_shared<Context>()) {}
+    UdpRouter() : context(std::make_shared<zephyr::context::Context>()) {}
     
     template<typename SyncHandler>
     void on_port(int port, SyncHandler handler) {
         auto async_handler = [h = std::move(handler)]
-            (const UdpPacket& packet, const Context& ctx) {
+            (const UdpPacket& packet, const zephyr::context::Context& ctx) {
             return UdpSender{ex::just(h(packet, ctx))};
         };
         routes.push_back(Route{port, std::move(async_handler)});
@@ -355,76 +297,8 @@ public:
 // ============================================================================
 
 template<typename BaseScheduler>
-struct StrandState : std::enable_shared_from_this<StrandState<BaseScheduler>> {
-    BaseScheduler base;
-    std::mutex m;
-    std::queue<std::function<void()>> tasks;
-    bool active = false;
-
-    explicit StrandState(BaseScheduler b) : base(std::move(b)) {}
-
-    void enqueue(std::function<void()> fn) {
-        bool start = false;
-        {
-            std::lock_guard<std::mutex> lock(m);
-            tasks.push(std::move(fn));
-            if (!active) {
-                active = true;
-                start = true;
-            }
-        }
-        if (start) {
-            dispatch();
-        }
-    }
-
-    void dispatch() {
-        auto self = this->shared_from_this();
-        ex::start_detached(
-            ex::schedule(base)
-            | ex::then([self]() { self->run_one(); })
-        );
-    }
-
-    void run_one() {
-        std::function<void()> fn;
-        {
-            std::lock_guard<std::mutex> lock(m);
-            if (tasks.empty()) {
-                active = false;
-                return;
-            }
-            fn = std::move(tasks.front());
-            tasks.pop();
-        }
-        try {
-            fn();
-        } catch (...) {
-            // swallow; errors are delivered to receiver
-        }
-        dispatch();
-    }
-};
-
-template<typename BaseScheduler, class Receiver>
-struct StrandOp {
-    std::shared_ptr<StrandState<BaseScheduler>> st;
-    Receiver rcv;
-    void start() noexcept {
-        auto self = st;
-        st->enqueue([self, r = std::move(rcv)]() mutable {
-            try {
-                ex::set_value(std::move(r));
-            } catch (...) {
-                ex::set_error(std::move(r), std::current_exception());
-            }
-        });
-    }
-};
-
-template<typename BaseScheduler>
 struct StrandSender {
-    std::shared_ptr<StrandState<BaseScheduler>> st;
+    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> st;
     using completion_signatures = ex::completion_signatures<
         ex::set_value_t(),
         ex::set_error_t(std::exception_ptr),
@@ -432,8 +306,8 @@ struct StrandSender {
     >;
 
     template<class Receiver>
-    StrandOp<BaseScheduler, Receiver> connect(Receiver r) const {
-        return StrandOp<BaseScheduler, Receiver>{st, std::move(r)};
+    zephyr::execution::StrandOp<BaseScheduler, Receiver> connect(Receiver r) const {
+        return zephyr::execution::StrandOp<BaseScheduler, Receiver>{st, std::move(r)};
     }
 };
 
@@ -441,7 +315,7 @@ template<typename BaseScheduler>
 class StrandScheduler {
 public:
     explicit StrandScheduler(BaseScheduler base)
-        : state_(std::make_shared<StrandState<BaseScheduler>>(std::move(base))) {}
+        : state_(std::make_shared<zephyr::execution::StrandState<BaseScheduler>>(std::move(base))) {}
 
     friend auto tag_invoke(ex::schedule_t, const StrandScheduler& sched) {
         return StrandSender<BaseScheduler>{sched.state_};
@@ -455,7 +329,7 @@ public:
     }
 
 private:
-    std::shared_ptr<StrandState<BaseScheduler>> state_;
+    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> state_;
 };
 
 template<class Base>
@@ -513,7 +387,7 @@ private:
                     throw std::runtime_error("Read error");
                 }
             })
-            | ex::then([self](std::string data) -> std::optional<HttpRequest> {
+            | ex::then([self](std::string data) -> std::optional<zephyr::http::HttpRequest> {
                 if (data.empty()) return std::nullopt;
                 
                 self->receive_buffer += data;
@@ -527,8 +401,8 @@ private:
                 }
                 return std::nullopt;
             })
-            | ex::let_value([self](std::optional<HttpRequest> maybe_req) {
-                using ResponseSender = any_sender_of<
+            | ex::let_value([self](std::optional<zephyr::http::HttpRequest> maybe_req) {
+                using ResponseSender = zephyr::utils::any_sender_of<
                     ex::set_value_t(std::string),
                     ex::set_error_t(std::exception_ptr),
                     ex::set_stopped_t()
@@ -545,7 +419,7 @@ private:
                 // Routuj przez HTTP router
                 return ResponseSender{
                     self->router.route(*maybe_req)
-                        | ex::then([](HttpResponse resp) {
+                        | ex::then([](zephyr::http::HttpResponse resp) {
                             return HttpSerializer::serialize(resp);
                         })
                 };
@@ -806,30 +680,30 @@ int main() {
     HttpRouter http_router;
     
     // Prosty endpoint
-    http_router.get("/", [](const HttpRequest&, const Context&) {
-        return HttpResponse::ok("Welcome to the server!");
+    http_router.get("/", [](const zephyr::http::HttpRequest&, const zephyr::context::Context&) {
+        return zephyr::http::HttpResponse::ok("Welcome to the server!");
     });
     
     // Endpoint z parametrami
-    http_router.get("/users/:id", [](const HttpRequest& req, const Context&) {
+    http_router.get("/users/:id", [](const zephyr::http::HttpRequest& req, const zephyr::context::Context&) {
         std::string user_id = req.path_params.at("id");
         std::string json = R"({"id": ")" + user_id + R"(", "name": "User )" + user_id + R"("})";
-        return HttpResponse::json(json);
+        return zephyr::http::HttpResponse::json(json);
     });
     
     // Asynchroniczny endpoint - symuluje zapytanie do bazy
-    http_router.get_async("/async", [pool_scheduler](const HttpRequest&, const Context&) {
+    http_router.get_async("/async", [pool_scheduler](const zephyr::http::HttpRequest&, const zephyr::context::Context&) {
         return ex::schedule(pool_scheduler)
             | ex::then([]() {
                 std::cout << "[Handler] Executing async work...\n";
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                return HttpResponse::ok("Async response after 100ms");
+                return zephyr::http::HttpResponse::ok("Async response after 100ms");
             });
     });
     
     // POST endpoint
-    http_router.post("/echo", [](const HttpRequest& req, const Context&) {
-        return HttpResponse::ok("Echo: " + req.body);
+    http_router.post("/echo", [](const zephyr::http::HttpRequest& req, const zephyr::context::Context&) {
+        return zephyr::http::HttpResponse::ok("Echo: " + req.body);
     });
     
     // ========================================================================
@@ -839,7 +713,7 @@ int main() {
     UdpRouter udp_router;
     
     // Handler dla portu 5000
-    udp_router.on_port(5000, [](const UdpPacket& packet, const Context&) {
+    udp_router.on_port(5000, [](const UdpPacket& packet, const zephyr::context::Context&) {
         std::cout << "[UDP Handler 5000] Received " << packet.data.size() 
                  << " bytes\n";
         
@@ -848,7 +722,7 @@ int main() {
     });
     
     // Handler dla portu 5001 - jednostronny, bez odpowiedzi
-    udp_router.on_port(5001, [](const UdpPacket& packet, const Context&) {
+    udp_router.on_port(5001, [](const UdpPacket& packet, const zephyr::context::Context&) {
         std::cout << "[UDP Handler 5001] Logging packet from " 
                  << packet.source_ip << "\n";
         // Brak odpowiedzi
