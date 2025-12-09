@@ -33,64 +33,6 @@ template<class... Sigs>
 using any_sender_of = exec::any_receiver_ref<ex::completion_signatures<Sigs...>>::template any_sender<>;
 
 // ============================================================================
-// IO_URING CONTEXT - minimalne opakowanie
-// ============================================================================
-
-class IoUringContext {
-public:
-    explicit IoUringContext(unsigned entries = 256) {
-        if (io_uring_queue_init(entries, &ring_, 0) != 0) {
-            throw std::runtime_error("io_uring_queue_init failed");
-        }
-    }
-
-    ~IoUringContext() {
-        io_uring_queue_exit(&ring_);
-    }
-
-    int accept(int listen_fd) {
-        sockaddr_in addr{};
-        socklen_t addrlen = sizeof(addr);
-        io_uring_sqe* sqe = io_uring_get_sqe(&ring_);
-        if (!sqe) return -1;
-        io_uring_prep_accept(sqe, listen_fd, (sockaddr*)&addr, &addrlen, SOCK_NONBLOCK);
-        io_uring_submit_and_wait(&ring_, 1);
-        io_uring_cqe* cqe = nullptr;
-        if (io_uring_wait_cqe(&ring_, &cqe) != 0) return -1;
-        int res = cqe->res;
-        io_uring_cqe_seen(&ring_, cqe);
-        return res;
-    }
-
-    ssize_t recv(int fd, void* buf, size_t len) {
-        io_uring_sqe* sqe = io_uring_get_sqe(&ring_);
-        if (!sqe) return -1;
-        io_uring_prep_recv(sqe, fd, buf, len, 0);
-        io_uring_submit_and_wait(&ring_, 1);
-        io_uring_cqe* cqe = nullptr;
-        if (io_uring_wait_cqe(&ring_, &cqe) != 0) return -1;
-        ssize_t res = cqe->res;
-        io_uring_cqe_seen(&ring_, cqe);
-        return res;
-    }
-
-    ssize_t send(int fd, const void* buf, size_t len) {
-        io_uring_sqe* sqe = io_uring_get_sqe(&ring_);
-        if (!sqe) return -1;
-        io_uring_prep_send(sqe, fd, buf, len, 0);
-        io_uring_submit_and_wait(&ring_, 1);
-        io_uring_cqe* cqe = nullptr;
-        if (io_uring_wait_cqe(&ring_, &cqe) != 0) return -1;
-        ssize_t res = cqe->res;
-        io_uring_cqe_seen(&ring_, cqe);
-        return res;
-    }
-
-private:
-    io_uring ring_{};
-};
-
-// ============================================================================
 // TYPY PODSTAWOWE - Struktury danych dla HTTP i UDP
 // ============================================================================
 

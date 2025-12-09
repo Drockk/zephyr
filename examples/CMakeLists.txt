@@ -18,4 +18,4 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 
 target_include_directories(example_tcp_02 PRIVATE ${LIBURING_INCLUDE_DIRS})
-target_link_libraries(example_tcp_02 PRIVATE STDEXEC::stdexec ${LIBURING_LIBRARIES})
+target_link_libraries(example_tcp_02 PRIVATE zephyr STDEXEC::stdexec ${LIBURING_LIBRARIES})

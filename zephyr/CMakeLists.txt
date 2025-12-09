@@ -15,10 +15,12 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 target_sources(zephyr
     PUBLIC
         FILE_SET HEADERS FILES
-        include/zephyr/core/application.hpp
-        include/zephyr/core/plugin.hpp
-        include/zephyr/plugins/dummyPlugin.hpp
+        "include/zephyr/core/application.hpp"
+        "include/zephyr/core/plugin.hpp"
+        "include/zephyr/io/ioUringContext.hpp"
+        "include/zephyr/plugins/dummyPlugin.hpp"
     PRIVATE
+        "source/io/ioUringContext.cpp"
 )
 
 target_link_libraries(zephyr
