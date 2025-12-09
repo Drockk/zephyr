@@ -21,10 +21,14 @@ target_sources(zephyr
         "include/zephyr/execution/strandOp.hpp"
         "include/zephyr/execution/strandState.hpp"
         "include/zephyr/http/httpMessages.hpp"
+        "include/zephyr/http/httpParser.hpp"
         "include/zephyr/io/ioUringContext.hpp"
         "include/zephyr/plugins/dummyPlugin.hpp"
+        "include/zephyr/udp/udpPacket.hpp"
         "include/zephyr/utils/anySender.hpp"
     PRIVATE
+        "source/http/httpMessages.cpp"
+        "source/http/httpParser.cpp"
         "source/io/ioUringContext.cpp"
 )
 

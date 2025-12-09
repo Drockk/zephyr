@@ -2,7 +2,9 @@
 #include <zephyr/execution/strandOp.hpp>
 #include <zephyr/execution/strandState.hpp>
 #include <zephyr/http/httpMessages.hpp>
+#include <zephyr/http/httpParser.hpp>
 #include <zephyr/io/ioUringContext.hpp>
+#include <zephyr/udp/udpPacket.hpp>
 #include <zephyr/utils/anySender.hpp>
 
 #include <stdexec/execution.hpp>
@@ -32,71 +34,8 @@
 namespace ex = stdexec;
 
 // ============================================================================
-// TYPY PODSTAWOWE - Struktury danych UDP
-// ============================================================================
-
-struct UdpPacket {
-    std::string source_ip;
-    int source_port;
-    int dest_port;
-    std::vector<uint8_t> data;
-};
-
-// ============================================================================
 // HTTP PARSER I SERIALIZER
 // ============================================================================
-
-class HttpParser {
-public:
-    static std::optional<zephyr::http::HttpRequest> parse(const std::string& raw) {
-        zephyr::http::HttpRequest req;
-        
-        auto first_line_end = raw.find("\r\n");
-        if (first_line_end == std::string::npos) return std::nullopt;
-        
-        std::string request_line = raw.substr(0, first_line_end);
-        size_t method_end = request_line.find(' ');
-        if (method_end == std::string::npos) return std::nullopt;
-        
-        req.method = request_line.substr(0, method_end);
-        size_t path_start = method_end + 1;
-        size_t path_end = request_line.find(' ', path_start);
-        if (path_end == std::string::npos) return std::nullopt;
-        
-        req.path = request_line.substr(path_start, path_end - path_start);
-        req.version = request_line.substr(path_end + 1);
-        
-        size_t pos = first_line_end + 2;
-        while (true) {
-            auto line_end = raw.find("\r\n", pos);
-            if (line_end == std::string::npos) break;
-            
-            std::string line = raw.substr(pos, line_end - pos);
-            if (line.empty()) {
-                pos = line_end + 2;
-                break;
-            }
-            
-            auto colon = line.find(':');
-            if (colon != std::string::npos) {
-                std::string name = line.substr(0, colon);
-                std::string value = line.substr(colon + 2);
-                req.headers[name] = value;
-            }
-            pos = line_end + 2;
-        }
-        
-        if (pos < raw.size()) {
-            req.body = raw.substr(pos);
-        }
-        
-        return req;
-    }
-    
-    static bool is_complete(const std::string& data) {
-        return data.find("\r\n\r\n") != std::string::npos;
-    }
-};
 
 class HttpSerializer {
 public:
@@ -259,7 +198,7 @@ public:
         ex::set_error_t(std::exception_ptr),
         ex::set_stopped_t()
     >;
-    using Handler = std::function<UdpSender(const UdpPacket&, const zephyr::context::Context&)>;
+    using Handler = std::function<UdpSender(const zephyr::udp::UdpPacket&, const zephyr::context::Context&)>;
     
 private:
     struct Route {
@@ -276,13 +215,13 @@ public:
     template<typename SyncHandler>
     void on_port(int port, SyncHandler handler) {
         auto async_handler = [h = std::move(handler)]
-            (const UdpPacket& packet, const zephyr::context::Context& ctx) {
+            (const zephyr::udp::UdpPacket& packet, const zephyr::context::Context& ctx) {
             return UdpSender{ex::just(h(packet, ctx))};
         };
         routes.push_back(Route{port, std::move(async_handler)});
     }
     
-    UdpSender route(UdpPacket packet) const {
+    UdpSender route(zephyr::udp::UdpPacket packet) const {
         for (const auto& r : routes) {
             if (r.port == packet.dest_port) {
                 return r.handler(packet, *context);
@@ -394,8 +333,8 @@ private:
                 std::cout << "[TCP Session " << self->socket_fd << "] Received " 
                          << data.size() << " bytes\n";
                 
-                if (HttpParser::is_complete(self->receive_buffer)) {
-                    auto req = HttpParser::parse(self->receive_buffer);
+                if (zephyr::http::HttpParser::is_complete(self->receive_buffer)) {
+                    auto req = zephyr::http::HttpParser::parse(self->receive_buffer);
                     self->receive_buffer.clear();
                     return req;
                 }
@@ -602,7 +541,7 @@ private:
     void receive_loop() {
         // Każdy pakiet obsługiwany w swoim strandzie dla bezpieczeństwa
         auto work = ex::schedule(pool_scheduler)
-            | ex::then([this]() -> std::optional<UdpPacket> {
+            | ex::then([this]() -> std::optional<zephyr::udp::UdpPacket> {
                 char buffer[65536];
                 sockaddr_in client_addr{};
                 socklen_t addr_len = sizeof(client_addr);
@@ -611,7 +550,7 @@ private:
                                     (sockaddr*)&client_addr, &addr_len);
                 
                 if (n > 0) {
-                    UdpPacket packet;
+                    zephyr::udp::UdpPacket packet;
                     packet.source_ip = inet_ntoa(client_addr.sin_addr);
                     packet.source_port = ntohs(client_addr.sin_port);
                     
@@ -629,7 +568,7 @@ private:
                 }
                 return std::nullopt;
             })
-            | ex::let_value([this](std::optional<UdpPacket> maybe_packet) {
+            | ex::let_value([this](std::optional<zephyr::udp::UdpPacket> maybe_packet) {
                 using RouterSender = UdpRouter::UdpSender;
 
                 if (!maybe_packet) {
@@ -713,7 +652,7 @@ int main() {
     UdpRouter udp_router;
     
     // Handler dla portu 5000
-    udp_router.on_port(5000, [](const UdpPacket& packet, const zephyr::context::Context&) {
+    udp_router.on_port(5000, [](const zephyr::udp::UdpPacket& packet, const zephyr::context::Context&) {
         std::cout << "[UDP Handler 5000] Received " << packet.data.size() 
                  << " bytes\n";
         
@@ -722,7 +661,7 @@ int main() {
     });
     
     // Handler dla portu 5001 - jednostronny, bez odpowiedzi
-    udp_router.on_port(5001, [](const UdpPacket& packet, const zephyr::context::Context&) {
+    udp_router.on_port(5001, [](const zephyr::udp::UdpPacket& packet, const zephyr::context::Context&) {
         std::cout << "[UDP Handler 5001] Logging packet from " 
                  << packet.source_ip << "\n";
         // Brak odpowiedzi

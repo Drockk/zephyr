@@ -21,29 +21,11 @@ struct HttpResponse
     std::string status_text = "OK";
     std::map<std::string, std::string> headers;
     std::string body;
-    
-    static HttpResponse ok(std::string t_body_text)
-    {
-        HttpResponse r;
-        r.body = std::move(t_body_text);
-        return r;
-    }
-    
-    static HttpResponse json(std::string t_json_text)
-    {
-        HttpResponse r;
-        r.headers["Content-Type"] = "application/json";
-        r.body = std::move(t_json_text);
-        return r;
-    }
-    
-    static HttpResponse not_found()
-    {
-        HttpResponse r;
-        r.status_code = 404;
-        r.status_text = "Not Found";
-        r.body = "404 Not Found";
-        return r;
-    }
+
+    static auto ok(std::string t_body_text) -> HttpResponse;
+
+    static auto json(std::string t_json_text) -> HttpResponse;
+
+    static auto not_found() -> HttpResponse;
 };
 }
