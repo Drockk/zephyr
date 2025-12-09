@@ -22,7 +22,10 @@ target_sources(zephyr
         include/zephyr/io/ioUringAcceptSender.hpp
         include/zephyr/io/ioUringContext.hpp
         include/zephyr/io/ioUringReadSender.hpp
+        include/zephyr/io/ioUringWriteSender.hpp
         include/zephyr/plugins/dummyPlugin.hpp
+        include/zephyr/tcp/session.hpp
+        include/zephyr/tcp/tcpServer.hpp
     PRIVATE
         source/io/ioUringContext.cpp
 )

@@ -7,6 +7,7 @@
 
 #include <zephyr/execution/strandScheduler.hpp>
 #include <zephyr/io/ioUringContext.hpp>
+#include <zephyr/tcp/tcpServer.hpp>
 
 int main()
 {
@@ -39,21 +40,21 @@ int main()
             return std::string{};
         };
 
-        // TcpServer server(pool, accept_strand, io_context, my_handler);
+        zephyr::tcp::TcpServer server(thread_pool, accept_strand, io_context, my_handler);
 
-        // if (server.listen(8080)) {
+        if (server.listen(8080)) {
             std::cout << "\nServer is running!\n";
             std::cout << "You can connect using: telnet localhost 8080\n";
             std::cout << "Or: echo 'test' | nc localhost 8080\n\n";
 
-        //     server.run();
+            server.run();
 
             std::this_thread::sleep_for(std::chrono::seconds(60));
 
             std::cout << "\nStopping...\n";
-        //     server.stop();
+            server.stop();
             io_context->stop();
-        // }
+        }
     }
     catch (const std::exception& t_exception) {
         std::cerr << std::format("Exception: {}\n", t_exception.what());
