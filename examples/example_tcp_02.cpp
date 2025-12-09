@@ -1,6 +1,3 @@
-// Kompiluj: g++ -std=c++23 -o server server.cpp -lpthread
-// Wymaga: stdexec + exec z repozytorium NVIDIA/stdexec
-
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <exec/inline_scheduler.hpp>
@@ -27,6 +24,9 @@
 #include <cstring>
 #include <thread>
 #include <chrono>
+#include <span>
+
+#include <zephyr/io/ioUringContext.hpp>
 
 namespace ex = stdexec;
 template<class... Sigs>
@@ -471,13 +471,13 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
     using SessionScheduler = StrandScheduler<decltype(strand_ctx.get_scheduler())>;
     SessionScheduler strand;
     const HttpRouter& router;
-    std::shared_ptr<IoUringContext> io_ctx;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
     
     std::string receive_buffer;
     bool is_active = true;
     
 public:
-    TcpSession(int fd, const HttpRouter& r, std::shared_ptr<IoUringContext> io)
+    TcpSession(int fd, const HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
         : socket_fd(fd), strand_ctx(), strand(SessionScheduler{strand_ctx.get_scheduler()}), router(r), io_ctx(std::move(io)) {
         std::cout << "[TCP Session " << socket_fd << "] Created\n";
     }
@@ -504,7 +504,7 @@ private:
         auto work = ex::schedule(strand)
             | ex::then([self]() {
                 char buffer[4096];
-                ssize_t n = self->io_ctx->recv(self->socket_fd, buffer, sizeof(buffer));
+                ssize_t n = self->io_ctx->receive(self->socket_fd, std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), sizeof(buffer)));
                 if (n > 0) {
                     return std::string(buffer, n);
                 } else if (n == 0) {
@@ -552,8 +552,7 @@ private:
             })
             | ex::then([self](std::string response) {
                 if (!response.empty()) {
-                    ssize_t sent = self->io_ctx->send(self->socket_fd, response.data(), 
-                                       response.size());
+                    ssize_t sent = self->io_ctx->send(self->socket_fd, std::span<std::byte>(reinterpret_cast<std::byte*>(response.data()), response.size()));
                     std::cout << "[TCP Session " << self->socket_fd << "] Sent " 
                              << sent << " bytes\n";
                 }
@@ -587,13 +586,13 @@ class TcpServer {
     BaseScheduler pool_scheduler;
     const HttpRouter& router;
     bool is_running = true;
-    std::shared_ptr<IoUringContext> io_ctx;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
 
     using Session = TcpSession;
     std::map<int, std::shared_ptr<Session>> sessions;
     
 public:
-    TcpServer(BaseScheduler sched, const HttpRouter& r, std::shared_ptr<IoUringContext> io)
+    TcpServer(BaseScheduler sched, const HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
         : pool_scheduler(sched), router(r), io_ctx(std::move(io)) {}
     
     ~TcpServer() {
@@ -860,7 +859,7 @@ int main() {
     // Uruchomienie serwerów
     // ========================================================================
     
-    auto io_ctx = std::make_shared<IoUringContext>();
+    auto io_ctx = std::make_shared<zephyr::io::IoUringContext>();
 
     TcpServer tcp_server(pool_scheduler, http_router, io_ctx);
     UdpServer udp_server(pool_scheduler, udp_router);
