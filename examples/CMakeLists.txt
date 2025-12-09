@@ -14,4 +14,8 @@ add_executable(example_tcp_02 example_tcp_02.cpp)
 
 set(CMAKE_CXX_STANDARD 23)
 
-target_link_libraries(example_tcp_02 PRIVATE STDEXEC::stdexec)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBURING REQUIRED liburing)
+
+target_include_directories(example_tcp_02 PRIVATE ${LIBURING_INCLUDE_DIRS})
+target_link_libraries(example_tcp_02 PRIVATE STDEXEC::stdexec ${LIBURING_LIBRARIES})

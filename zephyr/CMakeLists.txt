@@ -17,17 +17,8 @@ target_sources(zephyr
         FILE_SET HEADERS FILES
         include/zephyr/core/application.hpp
         include/zephyr/core/plugin.hpp
-        include/zephyr/execution/details/strandState.hpp
-        include/zephyr/execution/strandScheduler.hpp
-        include/zephyr/io/ioUringAcceptSender.hpp
-        include/zephyr/io/ioUringContext.hpp
-        include/zephyr/io/ioUringReadSender.hpp
-        include/zephyr/io/ioUringWriteSender.hpp
         include/zephyr/plugins/dummyPlugin.hpp
-        include/zephyr/tcp/session.hpp
-        include/zephyr/tcp/tcpServer.hpp
     PRIVATE
-        source/io/ioUringContext.cpp
 )
 
 target_link_libraries(zephyr
