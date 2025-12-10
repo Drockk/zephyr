@@ -39,7 +39,7 @@ public:
     {
         add_route("GET", std::move(t_path), std::move(t_handler));
     }
-    
+
     auto post(std::string t_path, auto t_handler)
         -> void
     {
@@ -58,18 +58,9 @@ public:
             }
         );
     }
-    
-    auto route(HttpRequest t_request) const
-        -> HttpSender
-    {
-        for (const auto& r : m_routes) {
-            if (r.matches(t_request.method, t_request.path)) {
-                return r.invoke(std::move(t_request), *m_context);
-            }
-        }
 
-        return HttpSender{stdexec::just(HttpResponse::not_found())};
-    }
+    auto route(HttpRequest t_request) const
+        -> HttpSender;
 
 private:
     std::vector<HttpRoute> m_routes;
