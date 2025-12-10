@@ -12,7 +12,6 @@
 
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
-#include <exec/inline_scheduler.hpp>
 #include <exec/single_thread_context.hpp>
 
 #include <sys/socket.h>
@@ -20,7 +19,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <poll.h>
 
 #include <string>
 #include <map>
@@ -33,225 +31,489 @@
 #include <chrono>
 #include <span>
 #include <atomic>
+#include <concepts>
 
 namespace ex = stdexec;
 
 // ============================================================================
-// UDP ROUTER - Routing po portach
+// COMMON TYPES - Wspólne typy i aliasy
 // ============================================================================
 
-class UdpRouter {
-public:
-    using UdpSender = zephyr::utils::any_sender_of<
-        ex::set_value_t(std::optional<std::vector<uint8_t>>),
-        ex::set_error_t(std::exception_ptr),
-        ex::set_stopped_t()
-    >;
-    using Handler = std::function<UdpSender(const zephyr::udp::UdpPacket&, const zephyr::context::Context&)>;
+template<typename T>
+using ResultSender = zephyr::utils::any_sender_of<
+    ex::set_value_t(T),
+    ex::set_error_t(std::exception_ptr),
+    ex::set_stopped_t()
+>;
+
+// ============================================================================
+// PROTOCOL TRAITS - Compile-time konfiguracja protokołów
+// ============================================================================
+
+// TCP: string-based I/O
+struct TcpProtocol {
+    using InputType = std::string;
+    using OutputType = std::optional<std::string>;
+    using ResultSenderType = ResultSender<OutputType>;
     
-private:
-    struct Route {
-        int port;
-        Handler handler;
+    static constexpr int socket_type = SOCK_STREAM;
+    static constexpr const char* name = "TCP";
+};
+
+// UDP: binary I/O z adresem nadawcy
+struct UdpProtocol {
+    struct InputType {
+        std::vector<uint8_t> data;
+        std::string source_ip;
+        uint16_t source_port;
+        uint16_t dest_port;
+        sockaddr_in client_addr;
     };
+    using OutputType = std::optional<std::vector<uint8_t>>;
+    using ResultSenderType = ResultSender<OutputType>;
     
-    std::vector<Route> routes;
-    std::shared_ptr<zephyr::context::Context> context;
+    static constexpr int socket_type = SOCK_DGRAM;
+    static constexpr const char* name = "UDP";
+};
+
+// ============================================================================
+// PIPELINE CONCEPT - Ujednolicony interfejs dla wszystkich pipeline'ów
+// ============================================================================
+
+template<typename T, typename Protocol>
+concept PipelineConcept = requires(T pipeline, typename Protocol::InputType input, 
+                                    std::shared_ptr<zephyr::context::Context> ctx) {
+    { pipeline(std::move(input), ctx) } -> std::convertible_to<typename Protocol::ResultSenderType>;
+};
+
+// ============================================================================
+// RAW PIPELINE - Generyczny pipeline dla dowolnego protokołu
+// ============================================================================
+
+template<typename Protocol, typename Handler>
+class RawPipeline {
+    Handler handler_;
     
 public:
-    UdpRouter() : context(std::make_shared<zephyr::context::Context>()) {}
+    constexpr explicit RawPipeline(Handler handler) : handler_(std::move(handler)) {}
     
-    template<typename SyncHandler>
-    void on_port(int port, SyncHandler handler) {
-        auto async_handler = [h = std::move(handler)]
-            (const zephyr::udp::UdpPacket& packet, const zephyr::context::Context& ctx) {
-            return UdpSender{ex::just(h(packet, ctx))};
-        };
-        routes.push_back(Route{port, std::move(async_handler)});
+    auto operator()(typename Protocol::InputType input, 
+                    std::shared_ptr<zephyr::context::Context>) const {
+        return typename Protocol::ResultSenderType{ex::just(handler_(std::move(input)))};
     }
+};
+
+// Deduction guide
+template<typename Protocol, typename Handler>
+RawPipeline(Handler) -> RawPipeline<Protocol, Handler>;
+
+// Factory functions dla compile-time pipeline
+template<typename Protocol, typename Handler>
+constexpr auto make_raw_pipeline(Handler&& handler) {
+    return RawPipeline<Protocol, std::decay_t<Handler>>(std::forward<Handler>(handler));
+}
+
+// ============================================================================
+// TCP PIPELINES
+// ============================================================================
+
+// Echo pipeline dla TCP
+inline constexpr auto tcp_echo_pipeline = [](std::string data) -> TcpProtocol::OutputType {
+    return data;
+};
+
+// HTTP Pipeline - Warstwa HTTP: parse -> route -> serialize
+class HttpPipeline {
+    const zephyr::http::HttpRouter& router_;
+    std::string receive_buffer_;
     
-    UdpSender route(zephyr::udp::UdpPacket packet) const {
-        for (const auto& r : routes) {
-            if (r.port == packet.dest_port) {
-                return r.handler(packet, *context);
-            }
+public:
+    explicit HttpPipeline(const zephyr::http::HttpRouter& router) 
+        : router_(router) {}
+    
+    TcpProtocol::ResultSenderType operator()(std::string data, 
+                                              std::shared_ptr<zephyr::context::Context>) {
+        receive_buffer_ += data;
+        
+        if (!zephyr::http::HttpParser::is_complete(receive_buffer_)) {
+            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{std::nullopt})};
         }
-        return UdpSender{ex::just(std::optional<std::vector<uint8_t>>{})};
+        
+        auto maybe_request = zephyr::http::HttpParser::parse(receive_buffer_);
+        receive_buffer_.clear();
+        
+        if (!maybe_request) {
+            zephyr::http::HttpResponse error_response{};
+            error_response.status_code = 400;
+            error_response.status_text = "Bad Request";
+            error_response.body = "Failed to parse HTTP request";
+            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{
+                zephyr::http::HttpSerializer::serialize(error_response)
+            })};
+        }
+        
+        std::cout << "[HTTP] " << maybe_request->method << " " << maybe_request->path << "\n";
+        
+        return TcpProtocol::ResultSenderType{
+            router_.route(*maybe_request)
+                | ex::then([](zephyr::http::HttpResponse resp) -> TcpProtocol::OutputType {
+                    return zephyr::http::HttpSerializer::serialize(resp);
+                })
+        };
     }
 };
 
 // ============================================================================
-// STRAND - prosta serializacja zadań na bazowym schedulerze
+// HTTP MIDDLEWARE - Warstwy pośrednie
+// ============================================================================
+
+// Middleware to funkcja: HttpRequest -> sender<HttpRequest>
+// Może modyfikować request, dodawać do kontekstu, lub zwrócić błąd
+template<typename F>
+concept HttpMiddlewareConcept = requires(F f, zephyr::http::HttpRequest req) {
+    { f(std::move(req)) } -> std::convertible_to<ResultSender<zephyr::http::HttpRequest>>;
+};
+
+// Logging middleware - loguje każdy request
+inline auto logging_middleware() {
+    return [](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+        std::cout << "[Middleware:Log] " << req.method << " " << req.path << "\n";
+        return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+    };
+}
+
+// Auth middleware - sprawdza token w headerze Authorization
+inline auto auth_middleware(std::string token) {
+    return [token = std::move(token)](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+        auto it = req.headers.find("Authorization");
+        if (it == req.headers.end() || it->second != "Bearer " + token) {
+            // Możemy rzucić wyjątek który zostanie obsłużony przez upon_error
+            return ResultSender<zephyr::http::HttpRequest>{
+                ex::just(std::move(req)) | ex::then([](auto) -> zephyr::http::HttpRequest {
+                    throw std::runtime_error("Unauthorized");
+                })
+            };
+        }
+        return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+    };
+}
+
+// ============================================================================
+// HTTP PIPELINE WITH MIDDLEWARE - Pipeline z obsługą middleware'ów
+// ============================================================================
+
+template<typename... Middlewares>
+class HttpPipelineWithMiddleware {
+    const zephyr::http::HttpRouter& router_;
+    std::string receive_buffer_;
+    std::tuple<Middlewares...> middlewares_;
+    
+public:
+    HttpPipelineWithMiddleware(const zephyr::http::HttpRouter& router, Middlewares... mws)
+        : router_(router), middlewares_(std::move(mws)...) {}
+    
+    TcpProtocol::ResultSenderType operator()(std::string data,
+                                              std::shared_ptr<zephyr::context::Context> ctx) {
+        receive_buffer_ += data;
+        
+        if (!zephyr::http::HttpParser::is_complete(receive_buffer_)) {
+            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{std::nullopt})};
+        }
+        
+        auto maybe_request = zephyr::http::HttpParser::parse(receive_buffer_);
+        receive_buffer_.clear();
+        
+        if (!maybe_request) {
+            zephyr::http::HttpResponse error_response{};
+            error_response.status_code = 400;
+            error_response.status_text = "Bad Request";
+            error_response.body = "Failed to parse HTTP request";
+            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{
+                zephyr::http::HttpSerializer::serialize(error_response)
+            })};
+        }
+        
+        std::cout << "[HTTP] " << maybe_request->method << " " << maybe_request->path << "\n";
+        
+        // Przepuść przez wszystkie middleware'y, potem przez router
+        return apply_middlewares(std::move(*maybe_request), std::index_sequence_for<Middlewares...>{});
+    }
+    
+private:
+    template<std::size_t... Is>
+    TcpProtocol::ResultSenderType apply_middlewares(zephyr::http::HttpRequest req,
+                                                     std::index_sequence<Is...>) {
+        // Startujemy od just(request)
+        auto sender = ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+        
+        // Aplikujemy każdy middleware przez let_value
+        ((sender = ResultSender<zephyr::http::HttpRequest>{
+            std::move(sender) | ex::let_value(std::get<Is>(middlewares_))
+        }), ...);
+        
+        // Na końcu routujemy i serializujemy
+        return TcpProtocol::ResultSenderType{
+            std::move(sender)
+                | ex::let_value([this](zephyr::http::HttpRequest req) {
+                    return router_.route(req);
+                })
+                | ex::then([](zephyr::http::HttpResponse resp) -> TcpProtocol::OutputType {
+                    return zephyr::http::HttpSerializer::serialize(resp);
+                })
+                | ex::upon_error([](std::exception_ptr e) -> TcpProtocol::OutputType {
+                    try { std::rethrow_exception(e); }
+                    catch (const std::exception& ex) {
+                        std::cout << "[HTTP] Middleware error: " << ex.what() << "\n";
+                        zephyr::http::HttpResponse error_resp{};
+                        error_resp.status_code = 401;
+                        error_resp.status_text = "Unauthorized";
+                        error_resp.body = ex.what();
+                        return zephyr::http::HttpSerializer::serialize(error_resp);
+                    }
+                })
+        };
+    }
+};
+
+// ============================================================================
+// HTTP PIPELINE BUILDER - Fluent API do budowania pipeline'ów
+// ============================================================================
+
+template<typename... Middlewares>
+class HttpPipelineBuilder {
+    const zephyr::http::HttpRouter* router_ = nullptr;
+    std::tuple<Middlewares...> middlewares_;
+    
+public:
+    HttpPipelineBuilder() = default;
+    
+    // Prywatny konstruktor dla with_middleware
+    HttpPipelineBuilder(const zephyr::http::HttpRouter* router, std::tuple<Middlewares...> mws)
+        : router_(router), middlewares_(std::move(mws)) {}
+    
+    auto with_router(const zephyr::http::HttpRouter& router) {
+        return HttpPipelineBuilder<Middlewares...>(&router, middlewares_);
+    }
+    
+    template<typename Middleware>
+    auto with_middleware(Middleware&& mw) {
+        auto new_middlewares = std::tuple_cat(
+            middlewares_,
+            std::make_tuple(std::forward<Middleware>(mw))
+        );
+        return HttpPipelineBuilder<Middlewares..., std::decay_t<Middleware>>(
+            router_, std::move(new_middlewares)
+        );
+    }
+    
+    // Zwraca fabrykę pipeline'ów
+    auto build() const {
+        if (!router_) {
+            throw std::runtime_error("HttpPipelineBuilder: router not set");
+        }
+        
+        const auto& router = *router_;
+        auto mws = middlewares_;
+        
+        if constexpr (sizeof...(Middlewares) == 0) {
+            // Bez middleware'ów - zwykły HttpPipeline
+            return [&router]() {
+                return HttpPipeline(router);
+            };
+        } else {
+            // Z middleware'ami
+            return [&router, mws]() {
+                return std::apply([&router](auto&&... args) {
+                    return HttpPipelineWithMiddleware(router, std::forward<decltype(args)>(args)...);
+                }, mws);
+            };
+        }
+    }
+};
+
+// ============================================================================
+// UDP PIPELINES
+// ============================================================================
+
+// Echo pipeline dla UDP
+inline constexpr auto udp_echo_pipeline = [](UdpProtocol::InputType packet) -> UdpProtocol::OutputType {
+    return packet.data;
+};
+
+// Router-based UDP Pipeline
+class UdpRouter {
+public:
+    using HandlerResult = std::optional<std::vector<uint8_t>>;
+    using SyncHandler = std::function<HandlerResult(const zephyr::udp::UdpPacket&, const zephyr::context::Context&)>;
+    
+private:
+    struct Route {
+        uint16_t port;
+        SyncHandler handler;
+    };
+    
+    std::vector<Route> routes_;
+    std::shared_ptr<zephyr::context::Context> context_;
+    
+public:
+    UdpRouter() : context_(std::make_shared<zephyr::context::Context>()) {}
+    
+    template<typename Handler>
+    void on_port(uint16_t port, Handler&& handler) {
+        routes_.push_back({port, std::forward<Handler>(handler)});
+    }
+    
+    HandlerResult route(const zephyr::udp::UdpPacket& packet) const {
+        for (const auto& route : routes_) {
+            if (route.port == packet.dest_port) {
+                return route.handler(packet, *context_);
+            }
+        }
+        return std::nullopt;
+    }
+    
+    const zephyr::context::Context& context() const { return *context_; }
+};
+
+class RouterUdpPipeline {
+    const UdpRouter& router_;
+    
+public:
+    explicit RouterUdpPipeline(const UdpRouter& router) : router_(router) {}
+    
+    UdpProtocol::ResultSenderType operator()(UdpProtocol::InputType packet,
+                                              std::shared_ptr<zephyr::context::Context>) const {
+        zephyr::udp::UdpPacket udp_packet;
+        udp_packet.data = std::move(packet.data);
+        udp_packet.source_ip = std::move(packet.source_ip);
+        udp_packet.source_port = packet.source_port;
+        udp_packet.dest_port = packet.dest_port;
+        
+        std::cout << "[UDP] Routing to port " << udp_packet.dest_port << "\n";
+        
+        return UdpProtocol::ResultSenderType{ex::just(router_.route(udp_packet))};
+    }
+};
+
+// ============================================================================
+// STRAND SCHEDULER - Serializacja zadań
 // ============================================================================
 
 template<typename BaseScheduler>
 struct StrandSender {
     std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> st;
+    
     using completion_signatures = ex::completion_signatures<
         ex::set_value_t(),
         ex::set_error_t(std::exception_ptr),
         ex::set_stopped_t()
     >;
-
+    
     template<class Receiver>
-    zephyr::execution::StrandOp<BaseScheduler, Receiver> connect(Receiver r) const {
+    auto connect(Receiver r) const {
         return zephyr::execution::StrandOp<BaseScheduler, Receiver>{st, std::move(r)};
     }
 };
 
+template<typename Base>
+inline constexpr bool stdexec::enable_sender<StrandSender<Base>> = true;
+
 template<typename BaseScheduler>
 class StrandScheduler {
+    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> state_;
+    
 public:
     explicit StrandScheduler(BaseScheduler base)
         : state_(std::make_shared<zephyr::execution::StrandState<BaseScheduler>>(std::move(base))) {}
-
-    friend auto tag_invoke(ex::schedule_t, const StrandScheduler& sched) {
-        return StrandSender<BaseScheduler>{sched.state_};
+    
+    friend auto tag_invoke(ex::schedule_t, const StrandScheduler& s) {
+        return StrandSender<BaseScheduler>{s.state_};
     }
-
-    friend bool operator==(const StrandScheduler& a, const StrandScheduler& b) {
-        return a.state_.get() == b.state_.get();
-    }
-    friend bool operator!=(const StrandScheduler& a, const StrandScheduler& b) {
-        return !(a == b);
-    }
-
-private:
-    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> state_;
+    
+    friend bool operator==(const StrandScheduler& a, const StrandScheduler& b) = default;
 };
 
-template<class Base>
-inline constexpr bool stdexec::enable_sender<StrandSender<Base>> = true;
-
 // ============================================================================
-// TCP SESSION - Pojedyncze połączenie klienta
+// TCP SESSION - Generyczna sesja TCP
 // ============================================================================
 
-class TcpSession : public std::enable_shared_from_this<TcpSession> {
+template<PipelineConcept<TcpProtocol> Pipeline>
+class TcpSession : public std::enable_shared_from_this<TcpSession<Pipeline>> {
 public:
     using OnCloseCallback = std::function<void(int)>;
-
-private:
-    int socket_fd;
-    exec::single_thread_context strand_ctx;
-    using SessionScheduler = StrandScheduler<decltype(strand_ctx.get_scheduler())>;
-    SessionScheduler strand;
-    const zephyr::http::HttpRouter& router;
-    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
-    OnCloseCallback on_close;
     
-    std::string receive_buffer;
-    bool is_active = true;
+private:
+    int socket_fd_;
+    exec::single_thread_context strand_ctx_;
+    StrandScheduler<decltype(strand_ctx_.get_scheduler())> strand_;
+    Pipeline pipeline_;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx_;
+    std::shared_ptr<zephyr::context::Context> context_;
+    OnCloseCallback on_close_;
+    bool is_active_ = true;
     
 public:
-    TcpSession(int fd, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io, OnCloseCallback on_close_cb = nullptr)
-        : socket_fd(fd), strand_ctx(), strand(SessionScheduler{strand_ctx.get_scheduler()}), router(r), io_ctx(std::move(io)), on_close(std::move(on_close_cb)) {
-        std::cout << "[TCP Session " << socket_fd << "] Created\n";
+    TcpSession(int fd, Pipeline pipeline, std::shared_ptr<zephyr::io::IoUringContext> io,
+               OnCloseCallback on_close = nullptr)
+        : socket_fd_(fd)
+        , strand_(strand_ctx_.get_scheduler())
+        , pipeline_(std::move(pipeline))
+        , io_ctx_(std::move(io))
+        , context_(std::make_shared<zephyr::context::Context>())
+        , on_close_(std::move(on_close)) 
+    {
+        std::cout << "[TCP:" << socket_fd_ << "] Session created\n";
     }
     
     ~TcpSession() {
-        std::cout << "[TCP Session " << socket_fd << "] Destroyed\n";
-        if (socket_fd >= 0) {
-            close(socket_fd);
-        }
+        std::cout << "[TCP:" << socket_fd_ << "] Session destroyed\n";
+        if (socket_fd_ >= 0) ::close(socket_fd_);
     }
     
-    int get_fd() const { return socket_fd; }
-    
-    void start() {
-        handle_read();
-    }
-    
-    void stop() {
-        is_active = false;
-    }
+    void start() { read_loop(); }
+    void stop() { is_active_ = false; }
+    int fd() const { return socket_fd_; }
     
 private:
-    void handle_read() {
+    void read_loop() {
         auto self = this->shared_from_this();
-
-        auto work = ex::schedule(strand)
+        
+        auto work = ex::schedule(strand_)
             | ex::then([self]() -> std::optional<std::string> {
-                char buffer[4096];
-                ssize_t n = self->io_ctx->receive(self->socket_fd, std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), sizeof(buffer)));
-                if (n > 0) {
-                    return std::string(buffer, n);
-                } else if (n == 0) {
-                    // Połączenie zamknięte przez klienta - to nie jest błąd
-                    return std::nullopt;
-                } else {
-                    throw std::runtime_error("Read error");
-                }
+                std::array<char, 4096> buffer;
+                auto n = self->io_ctx_->receive(self->socket_fd_, 
+                    std::as_writable_bytes(std::span{buffer}));
+                
+                if (n > 0) return std::string(buffer.data(), n);
+                if (n == 0) return std::nullopt;
+                throw std::runtime_error("Read error");
             })
-            | ex::then([self](std::optional<std::string> maybe_data) -> std::optional<zephyr::http::HttpRequest> {
-                if (!maybe_data) {
-                    // Połączenie zamknięte
-                    std::cout << "[TCP Session " << self->socket_fd << "] Connection closed by client\n";
-                    self->is_active = false;
-                    // Wywołaj callback do usunięcia sesji
-                    if (self->on_close) {
-                        self->on_close(self->socket_fd);
-                    }
-                    return std::nullopt;
+            | ex::let_value([self](std::optional<std::string> data) {
+                if (!data) {
+                    std::cout << "[TCP:" << self->socket_fd_ << "] Connection closed\n";
+                    self->is_active_ = false;
+                    if (self->on_close_) self->on_close_(self->socket_fd_);
+                    return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{})};
                 }
                 
-                auto& data = *maybe_data;
-                if (data.empty()) return std::nullopt;
-                
-                self->receive_buffer += data;
-                std::cout << "[TCP Session " << self->socket_fd << "] Received " 
-                         << data.size() << " bytes\n";
-                
-                if (zephyr::http::HttpParser::is_complete(self->receive_buffer)) {
-                    auto req = zephyr::http::HttpParser::parse(self->receive_buffer);
-                    self->receive_buffer.clear();
-                    return req;
-                }
-                return std::nullopt;
+                std::cout << "[TCP:" << self->socket_fd_ << "] Received " << data->size() << " bytes\n";
+                return self->pipeline_(std::move(*data), self->context_);
             })
-            | ex::let_value([self](std::optional<zephyr::http::HttpRequest> maybe_req) {
-                using ResponseSender = zephyr::utils::any_sender_of<
-                    ex::set_value_t(std::string),
-                    ex::set_error_t(std::exception_ptr),
-                    ex::set_stopped_t()
-                >;
-
-                if (!maybe_req) {
-                    // Niepełne żądanie - kontynuuj czytanie
-                    return ResponseSender{ex::just(std::string{})};
+            | ex::then([self](TcpProtocol::OutputType result) {
+                if (result && !result->empty()) {
+                    auto sent = self->io_ctx_->send(self->socket_fd_,
+                        std::as_bytes(std::span{*result}));
+                    std::cout << "[TCP:" << self->socket_fd_ << "] Sent " << sent << " bytes\n";
                 }
-                
-                std::cout << "[TCP Session " << self->socket_fd << "] Complete request: "
-                         << maybe_req->method << " " << maybe_req->path << "\n";
-                
-                // Routuj przez HTTP router
-                return ResponseSender{
-                    self->router.route(*maybe_req)
-                        | ex::then([](zephyr::http::HttpResponse resp) {
-                            return zephyr::http::HttpSerializer::serialize(resp);
-                        })
-                };
+                if (self->is_active_) self->read_loop();
             })
-            | ex::then([self](std::string response) {
-                if (!response.empty()) {
-                    ssize_t sent = self->io_ctx->send(self->socket_fd, std::span<std::byte>(reinterpret_cast<std::byte*>(response.data()), response.size()));
-                    std::cout << "[TCP Session " << self->socket_fd << "] Sent " 
-                             << sent << " bytes\n";
+            | ex::upon_error([self](std::exception_ptr e) {
+                try { std::rethrow_exception(e); }
+                catch (const std::exception& ex) {
+                    std::cout << "[TCP:" << self->socket_fd_ << "] Error: " << ex.what() << "\n";
                 }
-                
-                // Kontynuuj obsługę kolejnych żądań
-                if (self->is_active) {
-                    self->handle_read();
-                }
-            })
-            | ex::upon_error([self](std::exception_ptr eptr) {
-                try {
-                    std::rethrow_exception(eptr);
-                } catch (const std::exception& e) {
-                    std::cout << "[TCP Session " << self->socket_fd << "] Error: " 
-                             << e.what() << "\n";
-                }
-                self->is_active = false;
+                self->is_active_ = false;
+                if (self->on_close_) self->on_close_(self->socket_fd_);
             });
         
         ex::start_detached(std::move(work));
@@ -259,51 +521,47 @@ private:
 };
 
 // ============================================================================
-// TCP SERVER - Akceptuje połączenia
+// TCP SERVER
 // ============================================================================
 
-template<typename BaseScheduler>
+template<typename Scheduler, typename PipelineFactory>
+    requires std::invocable<PipelineFactory>
 class TcpServer {
-    int listen_socket = -1;
-    BaseScheduler pool_scheduler;
-    const zephyr::http::HttpRouter& router;
-    std::atomic<bool> is_running{true};
-    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
-
-    using Session = TcpSession;
-    std::map<int, std::shared_ptr<Session>> sessions;
-    // Sesje są modyfikowane tylko z puli wątków, więc nie potrzebujemy mutex
+    using PipelineType = std::invoke_result_t<PipelineFactory>;
+    using Session = TcpSession<PipelineType>;
+    
+    int listen_socket_ = -1;
+    Scheduler scheduler_;
+    PipelineFactory pipeline_factory_;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx_;
+    std::atomic<bool> is_running_{true};
+    std::map<int, std::shared_ptr<Session>> sessions_;
     
 public:
-    TcpServer(BaseScheduler sched, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
-        : pool_scheduler(sched), router(r), io_ctx(std::move(io)) {}
+    TcpServer(Scheduler sched, PipelineFactory factory, 
+              std::shared_ptr<zephyr::io::IoUringContext> io)
+        : scheduler_(sched)
+        , pipeline_factory_(std::move(factory))
+        , io_ctx_(std::move(io)) {}
     
-    ~TcpServer() {
-        stop();
-    }
+    ~TcpServer() { stop(); }
     
-    bool listen(int port) {
-        listen_socket = socket(AF_INET, SOCK_STREAM, 0);
-        if (listen_socket < 0) return false;
+    bool listen(uint16_t port) {
+        listen_socket_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_socket_ < 0) return false;
         
         int opt = 1;
-        setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        
-        // Nieblokujący socket dla accept
-        fcntl(listen_socket, F_SETFL, O_NONBLOCK);
+        setsockopt(listen_socket_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        fcntl(listen_socket_, F_SETFL, O_NONBLOCK);
         
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port);
         
-        if (bind(listen_socket, (sockaddr*)&addr, sizeof(addr)) < 0) {
-            close(listen_socket);
-            return false;
-        }
-        
-        if (::listen(listen_socket, 128) < 0) {
-            close(listen_socket);
+        if (::bind(listen_socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
+            ::listen(listen_socket_, 128) < 0) {
+            ::close(listen_socket_);
             return false;
         }
         
@@ -311,63 +569,53 @@ public:
         return true;
     }
     
-    void run() {
-        accept_loop();
-    }
+    void run() { accept_loop(); }
     
     void stop() {
-        is_running.store(false);
-        io_ctx->cancel();
-        if (listen_socket >= 0) {
-            close(listen_socket);
-            listen_socket = -1;
+        is_running_.store(false);
+        io_ctx_->cancel();
+        if (listen_socket_ >= 0) {
+            ::close(listen_socket_);
+            listen_socket_ = -1;
         }
     }
     
 private:
-    void remove_session_async(int fd) {
-        // Asynchronicznie usuń sesję przez scheduler
-        auto work = ex::schedule(pool_scheduler)
-            | ex::then([this, fd]() {
-                auto it = sessions.find(fd);
-                if (it != sessions.end()) {
+    void remove_session(int fd) {
+        auto work = ex::schedule(scheduler_)
+            | ex::then([this, fd] {
+                if (auto it = sessions_.find(fd); it != sessions_.end()) {
                     std::cout << "[TCP Server] Removing session fd=" << fd << "\n";
-                    sessions.erase(it);
+                    sessions_.erase(it);
                 }
             });
         ex::start_detached(std::move(work));
     }
     
     void accept_loop() {
-        if (!is_running.load()) return;
+        if (!is_running_.load()) return;
         
-        auto work = ex::schedule(pool_scheduler)
-            | ex::then([this]() {
-                if (!is_running.load()) return;
+        auto work = ex::schedule(scheduler_)
+            | ex::then([this] {
+                if (!is_running_.load()) return;
                 
-                int client_fd = io_ctx->accept(listen_socket);
-                
-                if (!is_running.load()) return;
+                int client_fd = io_ctx_->accept(listen_socket_);
+                if (!is_running_.load()) return;
                 
                 if (client_fd >= 0) {
-                    std::cout << "[TCP Server] Accepted connection: fd=" << client_fd << "\n";
+                    std::cout << "[TCP Server] New connection: fd=" << client_fd << "\n";
                     auto session = std::make_shared<Session>(
-                        client_fd, router, io_ctx,
-                        [this](int fd) { remove_session_async(fd); }
+                        client_fd, pipeline_factory_(), io_ctx_,
+                        [this](int fd) { remove_session(fd); }
                     );
-                    sessions[client_fd] = session;
+                    sessions_[client_fd] = session;
                     session->start();
-                } else if (is_running.load()) {
-                    std::cerr << "[TCP Server] Accept error: " << strerror(errno) << "\n";
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 
-                if (is_running.load()) {
-                    accept_loop();
-                }
+                if (is_running_.load()) accept_loop();
             })
             | ex::upon_error([this](std::exception_ptr) {
-                if (is_running.load()) {
+                if (is_running_.load()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     accept_loop();
                 }
@@ -378,36 +626,42 @@ private:
 };
 
 // ============================================================================
-// UDP SERVER - Obsługa datagramów
+// UDP SERVER
 // ============================================================================
 
-template<typename BaseScheduler>
+template<typename Scheduler, typename PipelineFactory>
+    requires std::invocable<PipelineFactory>
 class UdpServer {
-    int socket_fd = -1;
-    BaseScheduler pool_scheduler;
-    const UdpRouter& router;
-    bool is_running = true;
-    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
+    using PipelineType = std::invoke_result_t<PipelineFactory>;
+    
+    int socket_fd_ = -1;
+    Scheduler scheduler_;
+    PipelineType pipeline_;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx_;
+    std::shared_ptr<zephyr::context::Context> context_;
+    std::atomic<bool> is_running_{true};
     
 public:
-    UdpServer(BaseScheduler sched, const UdpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
-        : pool_scheduler(sched), router(r), io_ctx(std::move(io)) {}
+    UdpServer(Scheduler sched, PipelineFactory factory,
+              std::shared_ptr<zephyr::io::IoUringContext> io)
+        : scheduler_(sched)
+        , pipeline_(factory())
+        , io_ctx_(std::move(io))
+        , context_(std::make_shared<zephyr::context::Context>()) {}
     
-    ~UdpServer() {
-        stop();
-    }
+    ~UdpServer() { stop(); }
     
-    bool bind(int port) {
-        socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (socket_fd < 0) return false;
+    bool bind(uint16_t port) {
+        socket_fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (socket_fd_ < 0) return false;
         
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port);
         
-        if (::bind(socket_fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-            close(socket_fd);
+        if (::bind(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+            ::close(socket_fd_);
             return false;
         }
         
@@ -415,104 +669,83 @@ public:
         return true;
     }
     
-    void run() {
-        receive_loop();
-    }
+    void run() { receive_loop(); }
     
     void stop() {
-        is_running = false;
-        io_ctx->cancel();
-        if (socket_fd >= 0) {
-            close(socket_fd);
-            socket_fd = -1;
+        is_running_.store(false);
+        io_ctx_->cancel();
+        if (socket_fd_ >= 0) {
+            ::close(socket_fd_);
+            socket_fd_ = -1;
         }
     }
     
 private:
     void receive_loop() {
-        if (!is_running) return;
+        if (!is_running_.load()) return;
         
-        auto work = ex::schedule(pool_scheduler)
-            | ex::then([this]() -> std::optional<std::pair<zephyr::udp::UdpPacket, sockaddr_in>> {
-                if (!is_running) return std::nullopt;
+        auto work = ex::schedule(scheduler_)
+            | ex::then([this]() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>> {
+                if (!is_running_.load()) return std::nullopt;
                 
-                std::byte buffer[65536];
+                std::array<std::byte, 65536> buffer;
                 sockaddr_in client_addr{};
                 
-                ssize_t n = io_ctx->recvfrom(socket_fd, std::span<std::byte>(buffer, sizeof(buffer)), client_addr);
+                auto n = io_ctx_->recvfrom(socket_fd_, buffer, client_addr);
+                if (!is_running_.load() || n <= 0) return std::nullopt;
                 
-                if (!is_running) return std::nullopt;
+                // Get local port
+                sockaddr_in local_addr{};
+                socklen_t len = sizeof(local_addr);
+                getsockname(socket_fd_, reinterpret_cast<sockaddr*>(&local_addr), &len);
                 
-                if (n > 0) {
-                    zephyr::udp::UdpPacket packet;
-                    packet.source_ip = inet_ntoa(client_addr.sin_addr);
-                    packet.source_port = ntohs(client_addr.sin_port);
-                    
-                    sockaddr_in local_addr{};
-                    socklen_t addr_len = sizeof(local_addr);
-                    getsockname(socket_fd, (sockaddr*)&local_addr, &addr_len);
-                    packet.dest_port = ntohs(local_addr.sin_port);
-                    
-                    packet.data = std::vector<uint8_t>(reinterpret_cast<uint8_t*>(buffer), 
-                                                        reinterpret_cast<uint8_t*>(buffer) + n);
-                    
-                    std::cout << "[UDP Server] Received " << n << " bytes from "
-                             << packet.source_ip << ":" << packet.source_port << "\n";
-                    
-                    return std::make_pair(std::move(packet), client_addr);
-                }
-                return std::nullopt;
+                UdpProtocol::InputType packet{
+                    .data = {reinterpret_cast<uint8_t*>(buffer.data()),
+                             reinterpret_cast<uint8_t*>(buffer.data()) + n},
+                    .source_ip = inet_ntoa(client_addr.sin_addr),
+                    .source_port = ntohs(client_addr.sin_port),
+                    .dest_port = ntohs(local_addr.sin_port),
+                    .client_addr = client_addr
+                };
+                
+                std::cout << "[UDP Server] Received " << n << " bytes from "
+                          << packet.source_ip << ":" << packet.source_port << "\n";
+                
+                return std::make_pair(std::move(packet), client_addr);
             })
-            | ex::let_value([this](std::optional<std::pair<zephyr::udp::UdpPacket, sockaddr_in>> maybe_packet_addr) {
-                using ResultSender = zephyr::utils::any_sender_of<
-                    ex::set_value_t(std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>),
-                    ex::set_error_t(std::exception_ptr),
-                    ex::set_stopped_t()
-                >;
-
-                if (!maybe_packet_addr) {
-                    return ResultSender{ex::just(std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>{})};
-                }
+            | ex::let_value([this](auto maybe_packet) {
+                using Result = std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>;
+                using Sender = ResultSender<Result>;
                 
-                auto [packet, client_addr] = std::move(*maybe_packet_addr);
+                if (!maybe_packet) return Sender{ex::just(Result{})};
                 
-                // Routuj przez UDP router
-                return ResultSender{
-                    router.route(std::move(packet))
-                        | ex::then([client_addr](std::optional<std::vector<uint8_t>> response) 
-                            -> std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>> {
+                auto [packet, addr] = std::move(*maybe_packet);
+                return Sender{
+                    pipeline_(std::move(packet), context_)
+                        | ex::then([addr](UdpProtocol::OutputType response) -> Result {
                             if (response && !response->empty()) {
-                                return std::make_pair(std::move(*response), client_addr);
+                                return std::make_pair(std::move(*response), addr);
                             }
                             return std::nullopt;
                         })
                 };
             })
-            | ex::then([this](std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>> maybe_response) {
+            | ex::then([this](auto maybe_response) {
                 if (maybe_response) {
                     auto& [data, addr] = *maybe_response;
-                    ssize_t sent = io_ctx->sendto(socket_fd, 
-                        std::span<const std::byte>(reinterpret_cast<const std::byte*>(data.data()), data.size()),
+                    auto sent = io_ctx_->sendto(socket_fd_,
+                        std::span<const std::byte>{reinterpret_cast<const std::byte*>(data.data()), data.size()},
                         addr);
-                    std::cout << "[UDP Server] Sent " << sent << " bytes response\n";
+                    std::cout << "[UDP Server] Sent " << sent << " bytes\n";
                 }
-                
-                // Kontynuuj pętlę
-                if (is_running) {
-                    receive_loop();
-                }
+                if (is_running_.load()) receive_loop();
             })
-            | ex::upon_error([this](std::exception_ptr eptr) {
-                try {
-                    std::rethrow_exception(eptr);
-                } catch (const std::exception& e) {
-                    std::cout << "[UDP Server] Error: " << e.what() << "\n";
+            | ex::upon_error([this](std::exception_ptr e) {
+                try { std::rethrow_exception(e); }
+                catch (const std::exception& ex) {
+                    std::cout << "[UDP Server] Error: " << ex.what() << "\n";
                 }
-                
-                // Kontynuuj pętlę nawet po błędzie
-                if (is_running) {
-                    receive_loop();
-                }
+                if (is_running_.load()) receive_loop();
             });
         
         ex::start_detached(std::move(work));
@@ -520,217 +753,112 @@ private:
 };
 
 // ============================================================================
-// PRZYKŁAD UŻYCIA
+// FACTORY HELPERS - Dedukcja typów
+// ============================================================================
+
+template<typename Scheduler, typename PipelineFactory>
+auto make_tcp_server(Scheduler sched, PipelineFactory&& factory,
+                     std::shared_ptr<zephyr::io::IoUringContext> io) {
+    return TcpServer<Scheduler, std::decay_t<PipelineFactory>>(
+        sched, std::forward<PipelineFactory>(factory), std::move(io));
+}
+
+template<typename Scheduler, typename PipelineFactory>
+auto make_udp_server(Scheduler sched, PipelineFactory&& factory,
+                     std::shared_ptr<zephyr::io::IoUringContext> io) {
+    return UdpServer<Scheduler, std::decay_t<PipelineFactory>>(
+        sched, std::forward<PipelineFactory>(factory), std::move(io));
+}
+
+// ============================================================================
+// MAIN
 // ============================================================================
 
 int main() {
-    std::cout << "=== TCP/UDP/HTTP Server z exec ===\n\n";
+    std::cout << "=== Pipeline Server Example ===\n\n";
     
-    // Tworzymy pulę 4 wątków roboczych
     exec::static_thread_pool pool(4);
-    auto pool_scheduler = pool.get_scheduler();
+    auto scheduler = pool.get_scheduler();
     
-    // ========================================================================
-    // Konfiguracja HTTP Router
-    // ========================================================================
-    
+    // HTTP Router
     zephyr::http::HttpRouter http_router;
     
-    // Prosty endpoint
-    http_router.get("/", [](const zephyr::http::HttpRequest&, const zephyr::context::Context&) {
-        return zephyr::http::HttpResponse::ok("Welcome to the server!");
+    http_router.get("/", [](const auto&, const auto&) {
+        return zephyr::http::HttpResponse::ok("Welcome!");
     });
     
-    // Endpoint z parametrami
-    http_router.get("/users/:id", [](const zephyr::http::HttpRequest& req, const zephyr::context::Context&) {
-        std::string user_id = req.path_params.at("id");
-        std::string json = R"({"id": ")" + user_id + R"(", "name": "User )" + user_id + R"("})";
-        return zephyr::http::HttpResponse::json(json);
+    http_router.get("/users/:id", [](const auto& req, const auto&) {
+        auto id = req.path_params.at("id");
+        return zephyr::http::HttpResponse::json(R"({"id": ")" + id + R"("})");
     });
     
-    // Asynchroniczny endpoint - symuluje zapytanie do bazy
-    http_router.get_async("/async", [pool_scheduler](const zephyr::http::HttpRequest&, const zephyr::context::Context&) {
-        return ex::schedule(pool_scheduler)
-            | ex::then([]() {
-                std::cout << "[Handler] Executing async work...\n";
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                return zephyr::http::HttpResponse::ok("Async response after 100ms");
-            });
-    });
-    
-    // POST endpoint
-    http_router.post("/echo", [](const zephyr::http::HttpRequest& req, const zephyr::context::Context&) {
+    http_router.post("/echo", [](const auto& req, const auto&) {
         return zephyr::http::HttpResponse::ok("Echo: " + req.body);
     });
     
-    // ========================================================================
-    // Konfiguracja UDP Router
-    // ========================================================================
-    
+    // UDP Router
     UdpRouter udp_router;
     
-    // Handler dla portu 5000
-    udp_router.on_port(5000, [](const zephyr::udp::UdpPacket& packet, const zephyr::context::Context&) {
-        std::cout << "[UDP Handler 5000] Received " << packet.data.size() 
-                 << " bytes\n";
-        
-        // Echo - zwracamy te same dane
-        return std::optional<std::vector<uint8_t>>{packet.data};
+    udp_router.on_port(5000, [](const auto& packet, const auto&) {
+        std::cout << "[UDP:5000] Echo " << packet.data.size() << " bytes\n";
+        return std::optional{packet.data};
     });
     
-    // Handler dla portu 5001 - jednostronny, bez odpowiedzi
-    udp_router.on_port(5001, [](const zephyr::udp::UdpPacket& packet, const zephyr::context::Context&) {
-        std::cout << "[UDP Handler 5001] Logging packet from " 
-                 << packet.source_ip << "\n";
-        // Brak odpowiedzi
-        return std::optional<std::vector<uint8_t>>{};
-    });
+    // Create servers
+    auto http_io = std::make_shared<zephyr::io::IoUringContext>();
+    auto echo_io = std::make_shared<zephyr::io::IoUringContext>();
+    auto udp_io = std::make_shared<zephyr::io::IoUringContext>();
     
-    // ========================================================================
-    // Uruchomienie serwerów
-    // ========================================================================
+    // HTTP Server (TCP + HTTP Pipeline) - using HttpPipelineBuilder with middlewares
+    auto http_pipeline_factory = HttpPipelineBuilder<>()
+        .with_router(http_router)
+        .with_middleware(logging_middleware())
+        .with_middleware([](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+            // CORS middleware - dodaje nagłówki do response przez kontekst
+            std::cout << "[Middleware:CORS] Adding headers for " << req.path << "\n";
+            return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+        })
+        .build();
     
-    auto io_ctx = std::make_shared<zephyr::io::IoUringContext>();
-    auto udp_io_ctx = std::make_shared<zephyr::io::IoUringContext>();
-
-    TcpServer tcp_server(pool_scheduler, http_router, io_ctx);
-    UdpServer udp_server(pool_scheduler, udp_router, udp_io_ctx);
+    auto http_server = make_tcp_server(scheduler, http_pipeline_factory, http_io);
     
-    if (!tcp_server.listen(8080)) {
-        std::cerr << "Failed to start TCP server\n";
+    // Echo Server (TCP + Raw Pipeline)
+    auto echo_server = make_tcp_server(scheduler,
+        []() { return make_raw_pipeline<TcpProtocol>(
+            [](std::string data) -> TcpProtocol::OutputType {
+                return "ECHO: " + data;
+            }); }, echo_io);
+    
+    // UDP Server (UDP + Router Pipeline)
+    auto udp_server = make_udp_server(scheduler,
+        [&udp_router]() { return RouterUdpPipeline(udp_router); }, udp_io);
+    
+    // Start servers
+    if (!http_server.listen(8080) || !echo_server.listen(9000) || !udp_server.bind(5000)) {
+        std::cerr << "Failed to start servers\n";
         return 1;
     }
     
-    if (!udp_server.bind(5000)) {
-        std::cerr << "Failed to start UDP server\n";
-        return 1;
-    }
-    
-    tcp_server.run();
+    http_server.run();
+    echo_server.run();
     udp_server.run();
     
-    std::cout << "\n=== Serwery uruchomione ===\n";
-    std::cout << "TCP (HTTP) na porcie 8080\n";
-    std::cout << "UDP na porcie 5000\n\n";
+    std::cout << "\nServers running:\n"
+              << "  HTTP: http://localhost:8080/\n"
+              << "  Echo: nc localhost 9000\n"
+              << "  UDP:  echo test | nc -u localhost 5000\n\n"
+              << "Press Ctrl+C to stop...\n\n";
     
-    std::cout << "Możesz testować przez:\n";
-    std::cout << "  curl http://localhost:8080/\n";
-    std::cout << "  curl http://localhost:8080/users/123\n";
-    std::cout << "  curl http://localhost:8080/async\n";
-    std::cout << "  curl -X POST http://localhost:8080/echo -d 'Hello World'\n";
-    std::cout << "  echo 'test' | nc -u localhost 5000\n\n";
-    
-    // Serwery działają w tle na pulę wątków
-    // Główny wątek czeka na Ctrl+C
-    std::cout << "Naciśnij Ctrl+C aby zatrzymać...\n\n";
-    
-    // Symulujemy działanie serwera przez 5 sekund (dla testu)
     std::this_thread::sleep_for(std::chrono::seconds(60));
     
-    std::cout << "\n=== Zatrzymywanie serwerów ===\n";
-    
-    // Najpierw zatrzymaj serwery (zamyka sockety, co przerywa blokujące operacje io_uring)
-    tcp_server.stop();
+    std::cout << "\nStopping servers...\n";
+    http_server.stop();
+    echo_server.stop();
     udp_server.stop();
     
-    // Daj chwilę na zakończenie operacji io_uring po zamknięciu socketów
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    // Zatrzymaj pulę wątków
     pool.request_stop();
     
-    std::cout << "\n=== KLUCZOWE PUNKTY IMPLEMENTACJI ===\n\n";
-    
-    std::cout << "1. EXEC I STRANDY:\n";
-    std::cout << "   - Używamy exec::static_thread_pool(4) dla 4 wątków roboczych\n";
-    std::cout << "   - Operacje sesji TCP planowane na schedulerze puli wątków\n";
-    std::cout << "   - Różne sesje mogą działać równolegle, kolejność w ramach sesji zapewnia logika handlera\n\n";
-    
-    std::cout << "2. KOMPOZYCJA SENDERÓW:\n";
-    std::cout << "   - Czytanie -> Parsowanie -> Routing -> Handler -> Serializacja -> Zapis\n";
-    std::cout << "   - Każdy krok to sender komponowany przez operatory | ex::then, | ex::let_value\n";
-    std::cout << "   - Błędy propagują przez | ex::upon_error\n";
-    std::cout << "   - Wszystko asynchroniczne bez blokowania wątków\n\n";
-    
-    std::cout << "3. HTTP ROUTER:\n";
-    std::cout << "   - Pattern matching: /users/:id automatycznie wyciąga parametry\n";
-    std::cout << "   - Synchroniczne handlery: return HttpResponse::ok(...)\n";
-    std::cout << "   - Asynchroniczne handlery: return ex::schedule(...) | ex::then(...)\n";
-    std::cout << "   - Router sam jest senderem: router.route(req) zwraca sendera\n\n";
-    
-    std::cout << "4. UDP ROUTER:\n";
-    std::cout << "   - Routing po porcie docelowym\n";
-    std::cout << "   - Handler może zwrócić odpowiedź lub std::nullopt (brak odpowiedzi)\n";
-    std::cout << "   - Każdy pakiet obsługiwany w swoim strandzie\n\n";
-    
-    std::cout << "5. BRAK MUTEXÓW W SESJI:\n";
-    std::cout << "   - TcpSession::receive_buffer modyfikowany bez locków\n";
-    std::cout << "   - Bezpieczne dzięki strand scheduler\n";
-    std::cout << "   - Wszystkie operacje sesji wykonują się sekwencyjnie\n\n";
-    
-    std::cout << "6. UPROSZCZENIA W TYM PRZYKŁADZIE:\n";
-    std::cout << "   - Używamy recv/send z MSG_DONTWAIT zamiast io_uring\n";
-    std::cout << "   - Sleep między iteracjami accept/receive (w produkcji: epoll/io_uring)\n";
-    std::cout << "   - Prosty parser HTTP (w produkcji: llhttp lub http-parser)\n\n";
-    
-    std::cout << "7. CO ZMIENIĆ DLA PRODUKCJI:\n";
-    std::cout << "   - Zamień recv/send na io_uring async operacje\n";
-    std::cout << "   - Dodaj prawdziwy parser HTTP (llhttp)\n";
-    std::cout << "   - Dodaj obsługę Keep-Alive\n";
-    std::cout << "   - Dodaj rate limiting, timeouty\n";
-    std::cout << "   - Dodaj proper logging (spdlog)\n";
-    std::cout << "   - Dodaj metryki (prometheus)\n\n";
-    
-    std::cout << "8. DODAWANIE NOWYCH PROTOKOŁÓW:\n";
-    std::cout << "   - WebSocket: Specjalny route który upgrade'uje połączenie\n";
-    std::cout << "   - gRPC: Parser protobuf + routing po service/method\n";
-    std::cout << "   - Custom protocol: Własny parser + router\n";
-    std::cout << "   - Wszystko komponuje się przez sendery!\n\n";
-    
-    std::cout << "9. MIDDLEWARE:\n";
-    std::cout << "   - Można dodać warstwę między routerem a handlerem\n";
-    std::cout << "   - Auth middleware: sprawdza token przed handlerem\n";
-    std::cout << "   - Logging middleware: loguje request/response\n";
-    std::cout << "   - Rate limiting: sprawdza limity w Redis\n";
-    std::cout << "   - Każdy middleware to sender!\n\n";
-    
-    std::cout << "10. INTEGRACJA Z BAZĄ DANYCH:\n";
-    std::cout << "    - Używaj async driver zwracającego sendery\n";
-    std::cout << "    - PostgreSQL: używaj libpqxx z async API\n";
-    std::cout << "    - MongoDB: async driver\n";
-    std::cout << "    - Redis: async driver\n";
-    std::cout << "    - Komponuj zapytania DB w handlerze:\n";
-    std::cout << "      return db.query(...) | ex::then([](result) { ... });\n\n";
-    
-    std::cout << "=== PRZYKŁAD ROZSZERZEŃ ===\n\n";
-    
-    std::cout << "Dodawanie middleware auth:\n";
-    std::cout << "  auto with_auth = [router](HttpRequest req) {\n";
-    std::cout << "    if (req.headers[\"Authorization\"] != \"Bearer token\") {\n";
-    std::cout << "      HttpResponse err; err.status_code = 401;\n";
-    std::cout << "      return ex::just(err);\n";
-    std::cout << "    }\n";
-    std::cout << "    return router.route(req);\n";
-    std::cout << "  };\n\n";
-    
-    std::cout << "Dodawanie WebSocket:\n";
-    std::cout << "  http_router.get(\"/ws\", [](auto req, auto ctx) {\n";
-    std::cout << "    if (req.headers[\"Upgrade\"] == \"websocket\") {\n";
-    std::cout << "      // Upgrade connection to WebSocket\n";
-    std::cout << "      return handle_websocket_upgrade(req);\n";
-    std::cout << "    }\n";
-    std::cout << "    return HttpResponse::not_found();\n";
-    std::cout << "  });\n\n";
-    
-    std::cout << "Async handler z bazą danych:\n";
-    std::cout << "  http_router.get_async(\"/data\", [db](auto req, auto ctx) {\n";
-    std::cout << "    return db.query(\"SELECT * FROM table\")\n";
-    std::cout << "      | ex::then([](auto result) {\n";
-    std::cout << "          return HttpResponse::json(to_json(result));\n";
-    std::cout << "        });\n";
-    std::cout << "  });\n\n";
-    
-    std::cout << "=== KONIEC ===\n";
-    
+    std::cout << "Done.\n";
     return 0;
 }
