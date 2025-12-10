@@ -10,6 +10,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         clangd \
         liburing-dev \
         pkg-config \
+        netcat-openbsd \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 200 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 200 \
     && apt-get clean \
