@@ -3,6 +3,9 @@
 #include <zephyr/execution/strandState.hpp>
 #include <zephyr/http/httpMessages.hpp>
 #include <zephyr/http/httpParser.hpp>
+#include <zephyr/http/httpRoute.hpp>
+#include <zephyr/http/httpRouter.hpp>
+#include <zephyr/http/httpSerializer.hpp>
 #include <zephyr/io/ioUringContext.hpp>
 #include <zephyr/udp/udpPacket.hpp>
 #include <zephyr/utils/anySender.hpp>
@@ -23,7 +26,6 @@
 #include <map>
 #include <vector>
 #include <memory>
-#include <regex>
 #include <optional>
 #include <iostream>
 #include <cstring>
@@ -32,160 +34,6 @@
 #include <span>
 
 namespace ex = stdexec;
-
-// ============================================================================
-// HTTP PARSER I SERIALIZER
-// ============================================================================
-
-class HttpSerializer {
-public:
-    static std::string serialize(const zephyr::http::HttpResponse& resp) {
-        std::string result = "HTTP/1.1 ";
-        result += std::to_string(resp.status_code) + " ";
-        result += resp.status_text + "\r\n";
-        
-        auto headers = resp.headers;
-        if (headers.find("Content-Length") == headers.end() && !resp.body.empty()) {
-            headers["Content-Length"] = std::to_string(resp.body.size());
-        }
-        
-        for (const auto& [name, value] : headers) {
-            result += name + ": " + value + "\r\n";
-        }
-        
-        result += "\r\n" + resp.body;
-        return result;
-    }
-};
-
-// ============================================================================
-// HTTP ROUTER - Pattern matching i routing
-// ============================================================================
-
-class HttpRoute {
-public:
-    using HttpSender = zephyr::utils::any_sender_of<
-        ex::set_value_t(zephyr::http::HttpResponse),
-        ex::set_error_t(std::exception_ptr),
-        ex::set_stopped_t()
-    >;
-    using Handler = std::function<HttpSender(const zephyr::http::HttpRequest&, const zephyr::context::Context&)>;
-    
-private:
-    std::string method;
-    std::regex path_regex;
-    std::vector<std::string> param_names;
-    Handler handler;
-    
-public:
-    template<typename H>
-    HttpRoute(std::string m, std::string pattern, H h) 
-        : method(std::move(m)), handler(std::move(h)) {
-        compile_pattern(pattern);
-    }
-    
-    bool matches(const std::string& req_method, const std::string& req_path) const {
-        if (method != "*" && method != req_method) return false;
-        return std::regex_match(req_path, path_regex);
-    }
-    
-    std::map<std::string, std::string> extract_params(const std::string& path) const {
-        std::map<std::string, std::string> params;
-        std::smatch match;
-        if (std::regex_match(path, match, path_regex)) {
-            for (size_t i = 0; i < param_names.size() && i + 1 < match.size(); ++i) {
-                params[param_names[i]] = match[i + 1];
-            }
-        }
-        return params;
-    }
-    
-    HttpSender invoke(zephyr::http::HttpRequest req, const zephyr::context::Context& ctx) const {
-        req.path_params = extract_params(req.path);
-        return handler(req, ctx);
-    }
-    
-private:
-    void compile_pattern(const std::string& pattern) {
-        std::string regex_pattern;
-        size_t pos = 0;
-        
-        while (pos < pattern.size()) {
-            if (pattern[pos] == ':') {
-                size_t end = pattern.find('/', pos);
-                if (end == std::string::npos) end = pattern.size();
-                
-                std::string param_name = pattern.substr(pos + 1, end - pos - 1);
-                param_names.push_back(param_name);
-                regex_pattern += "([^/]+)";
-                pos = end;
-            } else if (pattern[pos] == '*') {
-                regex_pattern += ".*";
-                pos++;
-            } else {
-                if (std::string(".+?^$()[]{}|\\").find(pattern[pos]) != std::string::npos) {
-                    regex_pattern += '\\';
-                }
-                regex_pattern += pattern[pos];
-                pos++;
-            }
-        }
-        path_regex = std::regex(regex_pattern);
-    }
-};
-
-class HttpRouter {
-    using HttpSender = HttpRoute::HttpSender;
-    std::vector<HttpRoute> routes;
-    std::shared_ptr<zephyr::context::Context> context;
-    
-public:
-    HttpRouter() : context(std::make_shared<zephyr::context::Context>()) {}
-    
-    template<typename T>
-    void add_resource(const std::string& name, std::shared_ptr<T> res) {
-        context->set(name, res);
-    }
-    
-    // Synchroniczne handlery
-    template<typename SyncHandler>
-    void add_route(std::string method, std::string path, SyncHandler handler) {
-        auto async_handler = [h = std::move(handler)]
-            (const zephyr::http::HttpRequest& req, const zephyr::context::Context& ctx) {
-            return HttpSender{ex::just(h(req, ctx))};
-        };
-        routes.emplace_back(std::move(method), std::move(path), std::move(async_handler));
-    }
-    
-    void get(std::string path, auto handler) {
-        add_route("GET", std::move(path), std::move(handler));
-    }
-    
-    void post(std::string path, auto handler) {
-        add_route("POST", std::move(path), std::move(handler));
-    }
-    
-    // Asynchroniczne handlery
-    template<typename AsyncHandler>
-    void get_async(std::string path, AsyncHandler handler) {
-        routes.emplace_back(
-            "GET",
-            std::move(path),
-            [h = std::move(handler)](const zephyr::http::HttpRequest& req, const zephyr::context::Context& ctx) {
-                return HttpSender{h(req, ctx)};
-            }
-        );
-    }
-    
-    HttpSender route(zephyr::http::HttpRequest req) const {
-        for (const auto& r : routes) {
-            if (r.matches(req.method, req.path)) {
-                return r.invoke(std::move(req), *context);
-            }
-        }
-        return HttpSender{ex::just(zephyr::http::HttpResponse::not_found())};
-    }
-};
 
 // ============================================================================
 // UDP ROUTER - Routing po portach
@@ -283,14 +131,14 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
     exec::single_thread_context strand_ctx;
     using SessionScheduler = StrandScheduler<decltype(strand_ctx.get_scheduler())>;
     SessionScheduler strand;
-    const HttpRouter& router;
+    const zephyr::http::HttpRouter& router;
     std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
     
     std::string receive_buffer;
     bool is_active = true;
     
 public:
-    TcpSession(int fd, const HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
+    TcpSession(int fd, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
         : socket_fd(fd), strand_ctx(), strand(SessionScheduler{strand_ctx.get_scheduler()}), router(r), io_ctx(std::move(io)) {
         std::cout << "[TCP Session " << socket_fd << "] Created\n";
     }
@@ -359,7 +207,7 @@ private:
                 return ResponseSender{
                     self->router.route(*maybe_req)
                         | ex::then([](zephyr::http::HttpResponse resp) {
-                            return HttpSerializer::serialize(resp);
+                            return zephyr::http::HttpSerializer::serialize(resp);
                         })
                 };
             })
@@ -397,7 +245,7 @@ template<typename BaseScheduler>
 class TcpServer {
     int listen_socket = -1;
     BaseScheduler pool_scheduler;
-    const HttpRouter& router;
+    const zephyr::http::HttpRouter& router;
     bool is_running = true;
     std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
 
@@ -405,7 +253,7 @@ class TcpServer {
     std::map<int, std::shared_ptr<Session>> sessions;
     
 public:
-    TcpServer(BaseScheduler sched, const HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
+    TcpServer(BaseScheduler sched, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
         : pool_scheduler(sched), router(r), io_ctx(std::move(io)) {}
     
     ~TcpServer() {
@@ -616,7 +464,7 @@ int main() {
     // Konfiguracja HTTP Router
     // ========================================================================
     
-    HttpRouter http_router;
+    zephyr::http::HttpRouter http_router;
     
     // Prosty endpoint
     http_router.get("/", [](const zephyr::http::HttpRequest&, const zephyr::context::Context&) {

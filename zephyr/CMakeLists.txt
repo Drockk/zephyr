@@ -22,6 +22,9 @@ target_sources(zephyr
         "include/zephyr/execution/strandState.hpp"
         "include/zephyr/http/httpMessages.hpp"
         "include/zephyr/http/httpParser.hpp"
+        "include/zephyr/http/httpRoute.hpp"
+        "include/zephyr/http/httpRouter.hpp"
+        "include/zephyr/http/httpSerializer.hpp"
         "include/zephyr/io/ioUringContext.hpp"
         "include/zephyr/plugins/dummyPlugin.hpp"
         "include/zephyr/udp/udpPacket.hpp"
@@ -29,6 +32,9 @@ target_sources(zephyr
     PRIVATE
         "source/http/httpMessages.cpp"
         "source/http/httpParser.cpp"
+        "source/http/httpRoute.cpp"
+        "source/http/httpRouter.cpp"
+        "source/http/httpSerializer.cpp"
         "source/io/ioUringContext.cpp"
 )
 
