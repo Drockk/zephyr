@@ -32,6 +32,7 @@
 #include <thread>
 #include <chrono>
 #include <span>
+#include <atomic>
 
 namespace ex = stdexec;
 
@@ -127,19 +128,24 @@ inline constexpr bool stdexec::enable_sender<StrandSender<Base>> = true;
 // ============================================================================
 
 class TcpSession : public std::enable_shared_from_this<TcpSession> {
+public:
+    using OnCloseCallback = std::function<void(int)>;
+
+private:
     int socket_fd;
     exec::single_thread_context strand_ctx;
     using SessionScheduler = StrandScheduler<decltype(strand_ctx.get_scheduler())>;
     SessionScheduler strand;
     const zephyr::http::HttpRouter& router;
     std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
+    OnCloseCallback on_close;
     
     std::string receive_buffer;
     bool is_active = true;
     
 public:
-    TcpSession(int fd, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
-        : socket_fd(fd), strand_ctx(), strand(SessionScheduler{strand_ctx.get_scheduler()}), router(r), io_ctx(std::move(io)) {
+    TcpSession(int fd, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io, OnCloseCallback on_close_cb = nullptr)
+        : socket_fd(fd), strand_ctx(), strand(SessionScheduler{strand_ctx.get_scheduler()}), router(r), io_ctx(std::move(io)), on_close(std::move(on_close_cb)) {
         std::cout << "[TCP Session " << socket_fd << "] Created\n";
     }
     
@@ -149,6 +155,8 @@ public:
             close(socket_fd);
         }
     }
+    
+    int get_fd() const { return socket_fd; }
     
     void start() {
         handle_read();
@@ -163,18 +171,31 @@ private:
         auto self = this->shared_from_this();
 
         auto work = ex::schedule(strand)
-            | ex::then([self]() {
+            | ex::then([self]() -> std::optional<std::string> {
                 char buffer[4096];
                 ssize_t n = self->io_ctx->receive(self->socket_fd, std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), sizeof(buffer)));
                 if (n > 0) {
                     return std::string(buffer, n);
                 } else if (n == 0) {
-                    throw std::runtime_error("Connection closed");
+                    // Połączenie zamknięte przez klienta - to nie jest błąd
+                    return std::nullopt;
                 } else {
                     throw std::runtime_error("Read error");
                 }
             })
-            | ex::then([self](std::string data) -> std::optional<zephyr::http::HttpRequest> {
+            | ex::then([self](std::optional<std::string> maybe_data) -> std::optional<zephyr::http::HttpRequest> {
+                if (!maybe_data) {
+                    // Połączenie zamknięte
+                    std::cout << "[TCP Session " << self->socket_fd << "] Connection closed by client\n";
+                    self->is_active = false;
+                    // Wywołaj callback do usunięcia sesji
+                    if (self->on_close) {
+                        self->on_close(self->socket_fd);
+                    }
+                    return std::nullopt;
+                }
+                
+                auto& data = *maybe_data;
                 if (data.empty()) return std::nullopt;
                 
                 self->receive_buffer += data;
@@ -246,11 +267,12 @@ class TcpServer {
     int listen_socket = -1;
     BaseScheduler pool_scheduler;
     const zephyr::http::HttpRouter& router;
-    bool is_running = true;
+    std::atomic<bool> is_running{true};
     std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
 
     using Session = TcpSession;
     std::map<int, std::shared_ptr<Session>> sessions;
+    // Sesje są modyfikowane tylko z puli wątków, więc nie potrzebujemy mutex
     
 public:
     TcpServer(BaseScheduler sched, const zephyr::http::HttpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
@@ -294,7 +316,8 @@ public:
     }
     
     void stop() {
-        is_running = false;
+        is_running.store(false);
+        io_ctx->cancel();
         if (listen_socket >= 0) {
             close(listen_socket);
             listen_socket = -1;
@@ -302,29 +325,49 @@ public:
     }
     
 private:
+    void remove_session_async(int fd) {
+        // Asynchronicznie usuń sesję przez scheduler
+        auto work = ex::schedule(pool_scheduler)
+            | ex::then([this, fd]() {
+                auto it = sessions.find(fd);
+                if (it != sessions.end()) {
+                    std::cout << "[TCP Server] Removing session fd=" << fd << "\n";
+                    sessions.erase(it);
+                }
+            });
+        ex::start_detached(std::move(work));
+    }
+    
     void accept_loop() {
+        if (!is_running.load()) return;
+        
         auto work = ex::schedule(pool_scheduler)
             | ex::then([this]() {
+                if (!is_running.load()) return;
+                
                 int client_fd = io_ctx->accept(listen_socket);
+                
+                if (!is_running.load()) return;
                 
                 if (client_fd >= 0) {
                     std::cout << "[TCP Server] Accepted connection: fd=" << client_fd << "\n";
                     auto session = std::make_shared<Session>(
-                        client_fd, router, io_ctx
+                        client_fd, router, io_ctx,
+                        [this](int fd) { remove_session_async(fd); }
                     );
                     sessions[client_fd] = session;
                     session->start();
-                } else {
+                } else if (is_running.load()) {
                     std::cerr << "[TCP Server] Accept error: " << strerror(errno) << "\n";
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 
-                if (is_running) {
+                if (is_running.load()) {
                     accept_loop();
                 }
             })
             | ex::upon_error([this](std::exception_ptr) {
-                if (is_running) {
+                if (is_running.load()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     accept_loop();
                 }
@@ -344,10 +387,11 @@ class UdpServer {
     BaseScheduler pool_scheduler;
     const UdpRouter& router;
     bool is_running = true;
+    std::shared_ptr<zephyr::io::IoUringContext> io_ctx;
     
 public:
-    UdpServer(BaseScheduler sched, const UdpRouter& r)
-        : pool_scheduler(sched), router(r) {}
+    UdpServer(BaseScheduler sched, const UdpRouter& r, std::shared_ptr<zephyr::io::IoUringContext> io)
+        : pool_scheduler(sched), router(r), io_ctx(std::move(io)) {}
     
     ~UdpServer() {
         stop();
@@ -356,8 +400,6 @@ public:
     bool bind(int port) {
         socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
         if (socket_fd < 0) return false;
-        
-        fcntl(socket_fd, F_SETFL, O_NONBLOCK);
         
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -379,6 +421,7 @@ public:
     
     void stop() {
         is_running = false;
+        io_ctx->cancel();
         if (socket_fd >= 0) {
             close(socket_fd);
             socket_fd = -1;
@@ -387,15 +430,18 @@ public:
     
 private:
     void receive_loop() {
-        // Każdy pakiet obsługiwany w swoim strandzie dla bezpieczeństwa
+        if (!is_running) return;
+        
         auto work = ex::schedule(pool_scheduler)
-            | ex::then([this]() -> std::optional<zephyr::udp::UdpPacket> {
-                char buffer[65536];
-                sockaddr_in client_addr{};
-                socklen_t addr_len = sizeof(client_addr);
+            | ex::then([this]() -> std::optional<std::pair<zephyr::udp::UdpPacket, sockaddr_in>> {
+                if (!is_running) return std::nullopt;
                 
-                ssize_t n = recvfrom(socket_fd, buffer, sizeof(buffer), MSG_DONTWAIT,
-                                    (sockaddr*)&client_addr, &addr_len);
+                std::byte buffer[65536];
+                sockaddr_in client_addr{};
+                
+                ssize_t n = io_ctx->recvfrom(socket_fd, std::span<std::byte>(buffer, sizeof(buffer)), client_addr);
+                
+                if (!is_running) return std::nullopt;
                 
                 if (n > 0) {
                     zephyr::udp::UdpPacket packet;
@@ -403,44 +449,68 @@ private:
                     packet.source_port = ntohs(client_addr.sin_port);
                     
                     sockaddr_in local_addr{};
-                    addr_len = sizeof(local_addr);
+                    socklen_t addr_len = sizeof(local_addr);
                     getsockname(socket_fd, (sockaddr*)&local_addr, &addr_len);
                     packet.dest_port = ntohs(local_addr.sin_port);
                     
-                    packet.data = std::vector<uint8_t>(buffer, buffer + n);
+                    packet.data = std::vector<uint8_t>(reinterpret_cast<uint8_t*>(buffer), 
+                                                        reinterpret_cast<uint8_t*>(buffer) + n);
                     
                     std::cout << "[UDP Server] Received " << n << " bytes from "
                              << packet.source_ip << ":" << packet.source_port << "\n";
                     
-                    return packet;
+                    return std::make_pair(std::move(packet), client_addr);
                 }
                 return std::nullopt;
             })
-            | ex::let_value([this](std::optional<zephyr::udp::UdpPacket> maybe_packet) {
-                using RouterSender = UdpRouter::UdpSender;
+            | ex::let_value([this](std::optional<std::pair<zephyr::udp::UdpPacket, sockaddr_in>> maybe_packet_addr) {
+                using ResultSender = zephyr::utils::any_sender_of<
+                    ex::set_value_t(std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>),
+                    ex::set_error_t(std::exception_ptr),
+                    ex::set_stopped_t()
+                >;
 
-                if (!maybe_packet) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    return RouterSender{ex::just(std::optional<std::vector<uint8_t>>{})};
+                if (!maybe_packet_addr) {
+                    return ResultSender{ex::just(std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>{})};
                 }
+                
+                auto [packet, client_addr] = std::move(*maybe_packet_addr);
                 
                 // Routuj przez UDP router
-                return RouterSender{router.route(*maybe_packet)};
+                return ResultSender{
+                    router.route(std::move(packet))
+                        | ex::then([client_addr](std::optional<std::vector<uint8_t>> response) 
+                            -> std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>> {
+                            if (response && !response->empty()) {
+                                return std::make_pair(std::move(*response), client_addr);
+                            }
+                            return std::nullopt;
+                        })
+                };
             })
-            | ex::then([this](std::optional<std::vector<uint8_t>> maybe_response) {
-                if (maybe_response && !maybe_response->empty()) {
-                    // W produkcji: wysłalibyśmy odpowiedź z powrotem do klienta
-                    std::cout << "[UDP Server] Would send " << maybe_response->size() 
-                             << " bytes response\n";
+            | ex::then([this](std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>> maybe_response) {
+                if (maybe_response) {
+                    auto& [data, addr] = *maybe_response;
+                    ssize_t sent = io_ctx->sendto(socket_fd, 
+                        std::span<const std::byte>(reinterpret_cast<const std::byte*>(data.data()), data.size()),
+                        addr);
+                    std::cout << "[UDP Server] Sent " << sent << " bytes response\n";
                 }
                 
+                // Kontynuuj pętlę
                 if (is_running) {
                     receive_loop();
                 }
             })
-            | ex::upon_error([this](std::exception_ptr) {
+            | ex::upon_error([this](std::exception_ptr eptr) {
+                try {
+                    std::rethrow_exception(eptr);
+                } catch (const std::exception& e) {
+                    std::cout << "[UDP Server] Error: " << e.what() << "\n";
+                }
+                
+                // Kontynuuj pętlę nawet po błędzie
                 if (is_running) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     receive_loop();
                 }
             });
@@ -521,9 +591,10 @@ int main() {
     // ========================================================================
     
     auto io_ctx = std::make_shared<zephyr::io::IoUringContext>();
+    auto udp_io_ctx = std::make_shared<zephyr::io::IoUringContext>();
 
     TcpServer tcp_server(pool_scheduler, http_router, io_ctx);
-    UdpServer udp_server(pool_scheduler, udp_router);
+    UdpServer udp_server(pool_scheduler, udp_router, udp_io_ctx);
     
     if (!tcp_server.listen(8080)) {
         std::cerr << "Failed to start TCP server\n";
@@ -553,15 +624,20 @@ int main() {
     // Główny wątek czeka na Ctrl+C
     std::cout << "Naciśnij Ctrl+C aby zatrzymać...\n\n";
     
-    // Symulujemy działanie serwera przez 60 sekund
+    // Symulujemy działanie serwera przez 5 sekund (dla testu)
     std::this_thread::sleep_for(std::chrono::seconds(60));
     
     std::cout << "\n=== Zatrzymywanie serwerów ===\n";
+    
+    // Najpierw zatrzymaj serwery (zamyka sockety, co przerywa blokujące operacje io_uring)
     tcp_server.stop();
     udp_server.stop();
     
-    // Czekamy chwilę na zakończenie pending operations
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Daj chwilę na zakończenie operacji io_uring po zamknięciu socketów
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Zatrzymaj pulę wątków
+    pool.request_stop();
     
     std::cout << "\n=== KLUCZOWE PUNKTY IMPLEMENTACJI ===\n\n";
     
