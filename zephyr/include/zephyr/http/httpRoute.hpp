@@ -9,14 +9,14 @@
 
 #include "zephyr/context/context.hpp"
 #include "zephyr/http/httpMessages.hpp"
-#include "zephyr/utils/anySender.hpp"
+#include "zephyr/common/anySender.hpp"
 
 namespace zephyr::http
 {
 class HttpRoute
 {
 public:
-    using HttpSender = utils::any_sender_of<
+    using HttpSender = common::any_sender_of<
         stdexec::set_value_t(HttpResponse),
         stdexec::set_error_t(std::exception_ptr),
         stdexec::set_stopped_t()

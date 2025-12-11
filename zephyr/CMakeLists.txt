@@ -15,6 +15,7 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 target_sources(zephyr
     PUBLIC
         FILE_SET HEADERS FILES
+        "include/zephyr/common/anySender.hpp"
         "include/zephyr/context/context.hpp"
         "include/zephyr/core/application.hpp"
         "include/zephyr/core/plugin.hpp"
@@ -22,16 +23,21 @@ target_sources(zephyr
         "include/zephyr/execution/strandState.hpp"
         "include/zephyr/http/httpMessages.hpp"
         "include/zephyr/http/httpParser.hpp"
+        "include/zephyr/http/httpPipeline.hpp"
         "include/zephyr/http/httpRoute.hpp"
         "include/zephyr/http/httpRouter.hpp"
         "include/zephyr/http/httpSerializer.hpp"
         "include/zephyr/io/ioUringContext.hpp"
+        "include/zephyr/pipeline/pipelineConcept.hpp"
+        "include/zephyr/pipelines/rawPipeline.hpp"
         "include/zephyr/plugins/dummyPlugin.hpp"
+        "include/zephyr/tcp/tcpProtocol.hpp"
         "include/zephyr/udp/udpPacket.hpp"
-        "include/zephyr/utils/anySender.hpp"
+        "include/zephyr/udp/udpProtocol.hpp"
     PRIVATE
         "source/http/httpMessages.cpp"
         "source/http/httpParser.cpp"
+        "source/http/httpPipeline.cpp"
         "source/http/httpRoute.cpp"
         "source/http/httpRouter.cpp"
         "source/http/httpSerializer.cpp"

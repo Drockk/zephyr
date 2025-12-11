@@ -3,12 +3,17 @@
 #include <zephyr/execution/strandState.hpp>
 #include <zephyr/http/httpMessages.hpp>
 #include <zephyr/http/httpParser.hpp>
+#include <zephyr/http/httpPipeline.hpp>
 #include <zephyr/http/httpRoute.hpp>
 #include <zephyr/http/httpRouter.hpp>
 #include <zephyr/http/httpSerializer.hpp>
 #include <zephyr/io/ioUringContext.hpp>
+#include <zephyr/pipeline/pipelineConcept.hpp>
+#include <zephyr/pipelines/rawPipeline.hpp>
+#include <zephyr/tcp/tcpProtocol.hpp>
 #include <zephyr/udp/udpPacket.hpp>
-#include <zephyr/utils/anySender.hpp>
+#include <zephyr/udp/udpProtocol.hpp>
+#include <zephyr/common/resultSender.hpp>
 
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
@@ -36,134 +41,6 @@
 namespace ex = stdexec;
 
 // ============================================================================
-// COMMON TYPES - Wspólne typy i aliasy
-// ============================================================================
-
-template<typename T>
-using ResultSender = zephyr::utils::any_sender_of<
-    ex::set_value_t(T),
-    ex::set_error_t(std::exception_ptr),
-    ex::set_stopped_t()
->;
-
-// ============================================================================
-// PROTOCOL TRAITS - Compile-time konfiguracja protokołów
-// ============================================================================
-
-// TCP: string-based I/O
-struct TcpProtocol {
-    using InputType = std::string;
-    using OutputType = std::optional<std::string>;
-    using ResultSenderType = ResultSender<OutputType>;
-    
-    static constexpr int socket_type = SOCK_STREAM;
-    static constexpr const char* name = "TCP";
-};
-
-// UDP: binary I/O z adresem nadawcy
-struct UdpProtocol {
-    struct InputType {
-        std::vector<uint8_t> data;
-        std::string source_ip;
-        uint16_t source_port;
-        uint16_t dest_port;
-        sockaddr_in client_addr;
-    };
-    using OutputType = std::optional<std::vector<uint8_t>>;
-    using ResultSenderType = ResultSender<OutputType>;
-    
-    static constexpr int socket_type = SOCK_DGRAM;
-    static constexpr const char* name = "UDP";
-};
-
-// ============================================================================
-// PIPELINE CONCEPT - Ujednolicony interfejs dla wszystkich pipeline'ów
-// ============================================================================
-
-template<typename T, typename Protocol>
-concept PipelineConcept = requires(T pipeline, typename Protocol::InputType input, 
-                                    std::shared_ptr<zephyr::context::Context> ctx) {
-    { pipeline(std::move(input), ctx) } -> std::convertible_to<typename Protocol::ResultSenderType>;
-};
-
-// ============================================================================
-// RAW PIPELINE - Generyczny pipeline dla dowolnego protokołu
-// ============================================================================
-
-template<typename Protocol, typename Handler>
-class RawPipeline {
-    Handler handler_;
-    
-public:
-    constexpr explicit RawPipeline(Handler handler) : handler_(std::move(handler)) {}
-    
-    auto operator()(typename Protocol::InputType input, 
-                    std::shared_ptr<zephyr::context::Context>) const {
-        return typename Protocol::ResultSenderType{ex::just(handler_(std::move(input)))};
-    }
-};
-
-// Deduction guide
-template<typename Protocol, typename Handler>
-RawPipeline(Handler) -> RawPipeline<Protocol, Handler>;
-
-// Factory functions dla compile-time pipeline
-template<typename Protocol, typename Handler>
-constexpr auto make_raw_pipeline(Handler&& handler) {
-    return RawPipeline<Protocol, std::decay_t<Handler>>(std::forward<Handler>(handler));
-}
-
-// ============================================================================
-// TCP PIPELINES
-// ============================================================================
-
-// Echo pipeline dla TCP
-inline constexpr auto tcp_echo_pipeline = [](std::string data) -> TcpProtocol::OutputType {
-    return data;
-};
-
-// HTTP Pipeline - Warstwa HTTP: parse -> route -> serialize
-class HttpPipeline {
-    const zephyr::http::HttpRouter& router_;
-    std::string receive_buffer_;
-    
-public:
-    explicit HttpPipeline(const zephyr::http::HttpRouter& router) 
-        : router_(router) {}
-    
-    TcpProtocol::ResultSenderType operator()(std::string data, 
-                                              std::shared_ptr<zephyr::context::Context>) {
-        receive_buffer_ += data;
-        
-        if (!zephyr::http::HttpParser::is_complete(receive_buffer_)) {
-            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{std::nullopt})};
-        }
-        
-        auto maybe_request = zephyr::http::HttpParser::parse(receive_buffer_);
-        receive_buffer_.clear();
-        
-        if (!maybe_request) {
-            zephyr::http::HttpResponse error_response{};
-            error_response.status_code = 400;
-            error_response.status_text = "Bad Request";
-            error_response.body = "Failed to parse HTTP request";
-            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{
-                zephyr::http::HttpSerializer::serialize(error_response)
-            })};
-        }
-        
-        std::cout << "[HTTP] " << maybe_request->method << " " << maybe_request->path << "\n";
-        
-        return TcpProtocol::ResultSenderType{
-            router_.route(*maybe_request)
-                | ex::then([](zephyr::http::HttpResponse resp) -> TcpProtocol::OutputType {
-                    return zephyr::http::HttpSerializer::serialize(resp);
-                })
-        };
-    }
-};
-
-// ============================================================================
 // HTTP MIDDLEWARE - Warstwy pośrednie
 // ============================================================================
 
@@ -171,30 +48,30 @@ public:
 // Może modyfikować request, dodawać do kontekstu, lub zwrócić błąd
 template<typename F>
 concept HttpMiddlewareConcept = requires(F f, zephyr::http::HttpRequest req) {
-    { f(std::move(req)) } -> std::convertible_to<ResultSender<zephyr::http::HttpRequest>>;
+    { f(std::move(req)) } -> std::convertible_to<zephyr::common::ResultSender<zephyr::http::HttpRequest>>;
 };
 
 // Logging middleware - loguje każdy request
 inline auto logging_middleware() {
-    return [](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+    return [](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
         std::cout << "[Middleware:Log] " << req.method << " " << req.path << "\n";
-        return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+        return zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
     };
 }
 
 // Auth middleware - sprawdza token w headerze Authorization
 inline auto auth_middleware(std::string token) {
-    return [token = std::move(token)](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+    return [token = std::move(token)](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
         auto it = req.headers.find("Authorization");
         if (it == req.headers.end() || it->second != "Bearer " + token) {
             // Możemy rzucić wyjątek który zostanie obsłużony przez upon_error
-            return ResultSender<zephyr::http::HttpRequest>{
+            return zephyr::common::ResultSender<zephyr::http::HttpRequest>{
                 ex::just(std::move(req)) | ex::then([](auto) -> zephyr::http::HttpRequest {
                     throw std::runtime_error("Unauthorized");
                 })
             };
         }
-        return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+        return zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
     };
 }
 
@@ -212,12 +89,12 @@ public:
     HttpPipelineWithMiddleware(const zephyr::http::HttpRouter& router, Middlewares... mws)
         : router_(router), middlewares_(std::move(mws)...) {}
     
-    TcpProtocol::ResultSenderType operator()(std::string data,
+    zephyr::tcp::TcpProtocol::ResultSenderType operator()(std::string data,
                                               std::shared_ptr<zephyr::context::Context> ctx) {
         receive_buffer_ += data;
         
         if (!zephyr::http::HttpParser::is_complete(receive_buffer_)) {
-            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{std::nullopt})};
+            return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{std::nullopt})};
         }
         
         auto maybe_request = zephyr::http::HttpParser::parse(receive_buffer_);
@@ -228,7 +105,7 @@ public:
             error_response.status_code = 400;
             error_response.status_text = "Bad Request";
             error_response.body = "Failed to parse HTTP request";
-            return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{
+            return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{
                 zephyr::http::HttpSerializer::serialize(error_response)
             })};
         }
@@ -241,26 +118,26 @@ public:
     
 private:
     template<std::size_t... Is>
-    TcpProtocol::ResultSenderType apply_middlewares(zephyr::http::HttpRequest req,
+    zephyr::tcp::TcpProtocol::ResultSenderType apply_middlewares(zephyr::http::HttpRequest req,
                                                      std::index_sequence<Is...>) {
         // Startujemy od just(request)
-        auto sender = ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+        auto sender = zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
         
         // Aplikujemy każdy middleware przez let_value
-        ((sender = ResultSender<zephyr::http::HttpRequest>{
+        ((sender = zephyr::common::ResultSender<zephyr::http::HttpRequest>{
             std::move(sender) | ex::let_value(std::get<Is>(middlewares_))
         }), ...);
         
         // Na końcu routujemy i serializujemy
-        return TcpProtocol::ResultSenderType{
+        return zephyr::tcp::TcpProtocol::ResultSenderType{
             std::move(sender)
                 | ex::let_value([this](zephyr::http::HttpRequest req) {
                     return router_.route(req);
                 })
-                | ex::then([](zephyr::http::HttpResponse resp) -> TcpProtocol::OutputType {
+                | ex::then([](zephyr::http::HttpResponse resp) -> zephyr::tcp::TcpProtocol::OutputType {
                     return zephyr::http::HttpSerializer::serialize(resp);
                 })
-                | ex::upon_error([](std::exception_ptr e) -> TcpProtocol::OutputType {
+                | ex::upon_error([](std::exception_ptr e) -> zephyr::tcp::TcpProtocol::OutputType {
                     try { std::rethrow_exception(e); }
                     catch (const std::exception& ex) {
                         std::cout << "[HTTP] Middleware error: " << ex.what() << "\n";
@@ -318,7 +195,7 @@ public:
         if constexpr (sizeof...(Middlewares) == 0) {
             // Bez middleware'ów - zwykły HttpPipeline
             return [&router]() {
-                return HttpPipeline(router);
+                return zephyr::http::HttpPipeline(router);
             };
         } else {
             // Z middleware'ami
@@ -334,11 +211,6 @@ public:
 // ============================================================================
 // UDP PIPELINES
 // ============================================================================
-
-// Echo pipeline dla UDP
-inline constexpr auto udp_echo_pipeline = [](UdpProtocol::InputType packet) -> UdpProtocol::OutputType {
-    return packet.data;
-};
 
 // Router-based UDP Pipeline
 class UdpRouter {
@@ -381,7 +253,7 @@ class RouterUdpPipeline {
 public:
     explicit RouterUdpPipeline(const UdpRouter& router) : router_(router) {}
     
-    UdpProtocol::ResultSenderType operator()(UdpProtocol::InputType packet,
+    zephyr::udp::UdpProtocol::ResultSenderType operator()(zephyr::udp::UdpProtocol::InputType packet,
                                               std::shared_ptr<zephyr::context::Context>) const {
         zephyr::udp::UdpPacket udp_packet;
         udp_packet.data = std::move(packet.data);
@@ -391,7 +263,7 @@ public:
         
         std::cout << "[UDP] Routing to port " << udp_packet.dest_port << "\n";
         
-        return UdpProtocol::ResultSenderType{ex::just(router_.route(udp_packet))};
+        return zephyr::udp::UdpProtocol::ResultSenderType{ex::just(router_.route(udp_packet))};
     }
 };
 
@@ -437,7 +309,7 @@ public:
 // TCP SESSION - Generyczna sesja TCP
 // ============================================================================
 
-template<PipelineConcept<TcpProtocol> Pipeline>
+template<zephyr::pipeline::PipelineConcept<zephyr::tcp::TcpProtocol> Pipeline>
 class TcpSession : public std::enable_shared_from_this<TcpSession<Pipeline>> {
 public:
     using OnCloseCallback = std::function<void(int)>;
@@ -493,13 +365,13 @@ private:
                     std::cout << "[TCP:" << self->socket_fd_ << "] Connection closed\n";
                     self->is_active_ = false;
                     if (self->on_close_) self->on_close_(self->socket_fd_);
-                    return TcpProtocol::ResultSenderType{ex::just(TcpProtocol::OutputType{})};
+                    return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{})};
                 }
                 
                 std::cout << "[TCP:" << self->socket_fd_ << "] Received " << data->size() << " bytes\n";
                 return self->pipeline_(std::move(*data), self->context_);
             })
-            | ex::then([self](TcpProtocol::OutputType result) {
+            | ex::then([self](zephyr::tcp::TcpProtocol::OutputType result) {
                 if (result && !result->empty()) {
                     auto sent = self->io_ctx_->send(self->socket_fd_,
                         std::as_bytes(std::span{*result}));
@@ -685,7 +557,7 @@ private:
         if (!is_running_.load()) return;
         
         auto work = ex::schedule(scheduler_)
-            | ex::then([this]() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>> {
+            | ex::then([this]() -> std::optional<std::pair<zephyr::udp::UdpProtocol::InputType, sockaddr_in>> {
                 if (!is_running_.load()) return std::nullopt;
                 
                 std::array<std::byte, 65536> buffer;
@@ -699,7 +571,7 @@ private:
                 socklen_t len = sizeof(local_addr);
                 getsockname(socket_fd_, reinterpret_cast<sockaddr*>(&local_addr), &len);
                 
-                UdpProtocol::InputType packet{
+                zephyr::udp::UdpProtocol::InputType packet{
                     .data = {reinterpret_cast<uint8_t*>(buffer.data()),
                              reinterpret_cast<uint8_t*>(buffer.data()) + n},
                     .source_ip = inet_ntoa(client_addr.sin_addr),
@@ -715,14 +587,14 @@ private:
             })
             | ex::let_value([this](auto maybe_packet) {
                 using Result = std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>;
-                using Sender = ResultSender<Result>;
+                using Sender = zephyr::common::ResultSender<Result>;
                 
                 if (!maybe_packet) return Sender{ex::just(Result{})};
                 
                 auto [packet, addr] = std::move(*maybe_packet);
                 return Sender{
                     pipeline_(std::move(packet), context_)
-                        | ex::then([addr](UdpProtocol::OutputType response) -> Result {
+                        | ex::then([addr](zephyr::udp::UdpProtocol::OutputType response) -> Result {
                             if (response && !response->empty()) {
                                 return std::make_pair(std::move(*response), addr);
                             }
@@ -813,10 +685,10 @@ int main() {
     auto http_pipeline_factory = HttpPipelineBuilder<>()
         .with_router(http_router)
         .with_middleware(logging_middleware())
-        .with_middleware([](zephyr::http::HttpRequest req) -> ResultSender<zephyr::http::HttpRequest> {
+        .with_middleware([](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
             // CORS middleware - dodaje nagłówki do response przez kontekst
             std::cout << "[Middleware:CORS] Adding headers for " << req.path << "\n";
-            return ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
+            return zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
         })
         .build();
     
@@ -824,8 +696,8 @@ int main() {
     
     // Echo Server (TCP + Raw Pipeline)
     auto echo_server = make_tcp_server(scheduler,
-        []() { return make_raw_pipeline<TcpProtocol>(
-            [](std::string data) -> TcpProtocol::OutputType {
+        []() { return zephyr::pipelines::make_raw_pipeline<zephyr::tcp::TcpProtocol>(
+            [](std::string data) -> zephyr::tcp::TcpProtocol::OutputType {
                 return "ECHO: " + data;
             }); }, echo_io);
     
