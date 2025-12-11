@@ -7,35 +7,52 @@
     },
     "configurePresets": [
         {
-            "name": "debug",
-            "displayName": "Debug Config",
-            "description": "Debug build using Ninja generator",
+            "name": "base",
+            "hidden": true,
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build/debug",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_C_COMPILER": "gcc",
-                "CMAKE_CXX_COMPILER": "g++",
-                "CMAKE_CXX_EXTENSIONS": "OFF",
                 "CMAKE_CXX_STANDARD": "23",
                 "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_CXX_EXTENSIONS": "OFF",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP": "OFF",
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF"
             }
         },
         {
+            "name": "debug",
+            "inherits": "base",
+            "displayName": "Debug",
+            "description": "Debug build with full symbols",
+            "binaryDir": "${sourceDir}/build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
+            }
+        },
+        {
             "name": "release",
-            "displayName": "Release Config",
-            "description": "Release build using Ninja generator",
-            "generator": "Ninja",
+            "inherits": "base",
+            "displayName": "Release",
+            "description": "Optimized release build",
             "binaryDir": "${sourceDir}/build/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_CXX_STANDARD": "23",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP": "OFF",
-                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF"
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
+            }
+        },
+        {
+            "name": "release-with-debug",
+            "inherits": "base",
+            "displayName": "Release with Debug Info",
+            "description": "Optimized build with debug symbols",
+            "binaryDir": "${sourceDir}/build/relwithdebinfo",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
             }
         }
     ],
@@ -43,6 +60,14 @@
         {
             "name": "debug",
             "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "release-with-debug",
+            "configurePreset": "release-with-debug"
         }
     ]
 }
