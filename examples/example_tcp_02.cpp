@@ -1,6 +1,7 @@
 #include <zephyr/context/context.hpp>
 #include <zephyr/execution/strandOp.hpp>
 #include <zephyr/execution/strandState.hpp>
+#include <zephyr/http/middlewares/loggingMiddleware.hpp>
 #include <zephyr/http/httpMessages.hpp>
 #include <zephyr/http/httpParser.hpp>
 #include <zephyr/http/httpPipeline.hpp>
@@ -39,41 +40,6 @@
 #include <concepts>
 
 namespace ex = stdexec;
-
-// ============================================================================
-// HTTP MIDDLEWARE - Warstwy pośrednie
-// ============================================================================
-
-// Middleware to funkcja: HttpRequest -> sender<HttpRequest>
-// Może modyfikować request, dodawać do kontekstu, lub zwrócić błąd
-template<typename F>
-concept HttpMiddlewareConcept = requires(F f, zephyr::http::HttpRequest req) {
-    { f(std::move(req)) } -> std::convertible_to<zephyr::common::ResultSender<zephyr::http::HttpRequest>>;
-};
-
-// Logging middleware - loguje każdy request
-inline auto logging_middleware() {
-    return [](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
-        std::cout << "[Middleware:Log] " << req.method << " " << req.path << "\n";
-        return zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
-    };
-}
-
-// Auth middleware - sprawdza token w headerze Authorization
-inline auto auth_middleware(std::string token) {
-    return [token = std::move(token)](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
-        auto it = req.headers.find("Authorization");
-        if (it == req.headers.end() || it->second != "Bearer " + token) {
-            // Możemy rzucić wyjątek który zostanie obsłużony przez upon_error
-            return zephyr::common::ResultSender<zephyr::http::HttpRequest>{
-                ex::just(std::move(req)) | ex::then([](auto) -> zephyr::http::HttpRequest {
-                    throw std::runtime_error("Unauthorized");
-                })
-            };
-        }
-        return zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
-    };
-}
 
 // ============================================================================
 // HTTP PIPELINE WITH MIDDLEWARE - Pipeline z obsługą middleware'ów
@@ -684,7 +650,7 @@ int main() {
     // HTTP Server (TCP + HTTP Pipeline) - using HttpPipelineBuilder with middlewares
     auto http_pipeline_factory = HttpPipelineBuilder<>()
         .with_router(http_router)
-        .with_middleware(logging_middleware())
+        .with_middleware(zephyr::http::logging_middleware())
         .with_middleware([](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
             // CORS middleware - dodaje nagłówki do response przez kontekst
             std::cout << "[Middleware:CORS] Adding headers for " << req.path << "\n";
