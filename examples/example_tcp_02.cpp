@@ -5,6 +5,7 @@
 #include <zephyr/http/httpMessages.hpp>
 #include <zephyr/http/httpParser.hpp>
 #include <zephyr/http/httpPipeline.hpp>
+#include <zephyr/http/httpPipelineWithMiddleware.hpp>
 #include <zephyr/http/httpRoute.hpp>
 #include <zephyr/http/httpRouter.hpp>
 #include <zephyr/http/httpSerializer.hpp>
@@ -40,83 +41,6 @@
 #include <concepts>
 
 namespace ex = stdexec;
-
-// ============================================================================
-// HTTP PIPELINE WITH MIDDLEWARE - Pipeline z obsługą middleware'ów
-// ============================================================================
-
-template<typename... Middlewares>
-class HttpPipelineWithMiddleware {
-    const zephyr::http::HttpRouter& router_;
-    std::string receive_buffer_;
-    std::tuple<Middlewares...> middlewares_;
-    
-public:
-    HttpPipelineWithMiddleware(const zephyr::http::HttpRouter& router, Middlewares... mws)
-        : router_(router), middlewares_(std::move(mws)...) {}
-    
-    zephyr::tcp::TcpProtocol::ResultSenderType operator()(std::string data,
-                                              std::shared_ptr<zephyr::context::Context> ctx) {
-        receive_buffer_ += data;
-        
-        if (!zephyr::http::HttpParser::is_complete(receive_buffer_)) {
-            return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{std::nullopt})};
-        }
-        
-        auto maybe_request = zephyr::http::HttpParser::parse(receive_buffer_);
-        receive_buffer_.clear();
-        
-        if (!maybe_request) {
-            zephyr::http::HttpResponse error_response{};
-            error_response.status_code = 400;
-            error_response.status_text = "Bad Request";
-            error_response.body = "Failed to parse HTTP request";
-            return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{
-                zephyr::http::HttpSerializer::serialize(error_response)
-            })};
-        }
-        
-        std::cout << "[HTTP] " << maybe_request->method << " " << maybe_request->path << "\n";
-        
-        // Przepuść przez wszystkie middleware'y, potem przez router
-        return apply_middlewares(std::move(*maybe_request), std::index_sequence_for<Middlewares...>{});
-    }
-    
-private:
-    template<std::size_t... Is>
-    zephyr::tcp::TcpProtocol::ResultSenderType apply_middlewares(zephyr::http::HttpRequest req,
-                                                     std::index_sequence<Is...>) {
-        // Startujemy od just(request)
-        auto sender = zephyr::common::ResultSender<zephyr::http::HttpRequest>{ex::just(std::move(req))};
-        
-        // Aplikujemy każdy middleware przez let_value
-        ((sender = zephyr::common::ResultSender<zephyr::http::HttpRequest>{
-            std::move(sender) | ex::let_value(std::get<Is>(middlewares_))
-        }), ...);
-        
-        // Na końcu routujemy i serializujemy
-        return zephyr::tcp::TcpProtocol::ResultSenderType{
-            std::move(sender)
-                | ex::let_value([this](zephyr::http::HttpRequest req) {
-                    return router_.route(req);
-                })
-                | ex::then([](zephyr::http::HttpResponse resp) -> zephyr::tcp::TcpProtocol::OutputType {
-                    return zephyr::http::HttpSerializer::serialize(resp);
-                })
-                | ex::upon_error([](std::exception_ptr e) -> zephyr::tcp::TcpProtocol::OutputType {
-                    try { std::rethrow_exception(e); }
-                    catch (const std::exception& ex) {
-                        std::cout << "[HTTP] Middleware error: " << ex.what() << "\n";
-                        zephyr::http::HttpResponse error_resp{};
-                        error_resp.status_code = 401;
-                        error_resp.status_text = "Unauthorized";
-                        error_resp.body = ex.what();
-                        return zephyr::http::HttpSerializer::serialize(error_resp);
-                    }
-                })
-        };
-    }
-};
 
 // ============================================================================
 // HTTP PIPELINE BUILDER - Fluent API do budowania pipeline'ów
@@ -167,7 +91,7 @@ public:
             // Z middleware'ami
             return [&router, mws]() {
                 return std::apply([&router](auto&&... args) {
-                    return HttpPipelineWithMiddleware(router, std::forward<decltype(args)>(args)...);
+                    return zephyr::http::HttpPipelineWithMiddleware(router, std::forward<decltype(args)>(args)...);
                 }, mws);
             };
         }
