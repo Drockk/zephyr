@@ -3,19 +3,14 @@
 #include <zephyr/execution/strandState.hpp>
 #include <zephyr/http/middlewares/loggingMiddleware.hpp>
 #include <zephyr/http/httpMessages.hpp>
-#include <zephyr/http/httpParser.hpp>
-#include <zephyr/http/httpPipeline.hpp>
-#include <zephyr/http/httpPipelineWithMiddleware.hpp>
-#include <zephyr/http/httpRoute.hpp>
+#include <zephyr/http/httpPipelineBuilder.hpp>
 #include <zephyr/http/httpRouter.hpp>
-#include <zephyr/http/httpSerializer.hpp>
 #include <zephyr/io/ioUringContext.hpp>
 #include <zephyr/pipeline/pipelineConcept.hpp>
 #include <zephyr/pipelines/rawPipeline.hpp>
 #include <zephyr/tcp/tcpProtocol.hpp>
 #include <zephyr/udp/udpPacket.hpp>
 #include <zephyr/udp/udpProtocol.hpp>
-#include <zephyr/common/resultSender.hpp>
 
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
@@ -41,62 +36,6 @@
 #include <concepts>
 
 namespace ex = stdexec;
-
-// ============================================================================
-// HTTP PIPELINE BUILDER - Fluent API do budowania pipeline'ów
-// ============================================================================
-
-template<typename... Middlewares>
-class HttpPipelineBuilder {
-    const zephyr::http::HttpRouter* router_ = nullptr;
-    std::tuple<Middlewares...> middlewares_;
-    
-public:
-    HttpPipelineBuilder() = default;
-    
-    // Prywatny konstruktor dla with_middleware
-    HttpPipelineBuilder(const zephyr::http::HttpRouter* router, std::tuple<Middlewares...> mws)
-        : router_(router), middlewares_(std::move(mws)) {}
-    
-    auto with_router(const zephyr::http::HttpRouter& router) {
-        return HttpPipelineBuilder<Middlewares...>(&router, middlewares_);
-    }
-    
-    template<typename Middleware>
-    auto with_middleware(Middleware&& mw) {
-        auto new_middlewares = std::tuple_cat(
-            middlewares_,
-            std::make_tuple(std::forward<Middleware>(mw))
-        );
-        return HttpPipelineBuilder<Middlewares..., std::decay_t<Middleware>>(
-            router_, std::move(new_middlewares)
-        );
-    }
-    
-    // Zwraca fabrykę pipeline'ów
-    auto build() const {
-        if (!router_) {
-            throw std::runtime_error("HttpPipelineBuilder: router not set");
-        }
-        
-        const auto& router = *router_;
-        auto mws = middlewares_;
-        
-        if constexpr (sizeof...(Middlewares) == 0) {
-            // Bez middleware'ów - zwykły HttpPipeline
-            return [&router]() {
-                return zephyr::http::HttpPipeline(router);
-            };
-        } else {
-            // Z middleware'ami
-            return [&router, mws]() {
-                return std::apply([&router](auto&&... args) {
-                    return zephyr::http::HttpPipelineWithMiddleware(router, std::forward<decltype(args)>(args)...);
-                }, mws);
-            };
-        }
-    }
-};
 
 // ============================================================================
 // UDP PIPELINES
@@ -572,7 +511,7 @@ int main() {
     auto udp_io = std::make_shared<zephyr::io::IoUringContext>();
     
     // HTTP Server (TCP + HTTP Pipeline) - using HttpPipelineBuilder with middlewares
-    auto http_pipeline_factory = HttpPipelineBuilder<>()
+    auto http_pipeline_factory = zephyr::http::HttpPipelineBuilder<>()
         .with_router(http_router)
         .with_middleware(zephyr::http::logging_middleware())
         .with_middleware([](zephyr::http::HttpRequest req) -> zephyr::common::ResultSender<zephyr::http::HttpRequest> {
