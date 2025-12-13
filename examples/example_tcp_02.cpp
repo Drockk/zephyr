@@ -9,9 +9,9 @@
 #include <zephyr/pipeline/pipelineConcept.hpp>
 #include <zephyr/pipelines/rawPipeline.hpp>
 #include <zephyr/tcp/tcpProtocol.hpp>
-#include <zephyr/udp/udpPacket.hpp>
 #include <zephyr/udp/udpProtocol.hpp>
 #include <zephyr/udp/udpRouter.hpp>
+#include <zephyr/udp/udpRouterPipeline.hpp>
 
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
@@ -37,26 +37,6 @@
 #include <concepts>
 
 namespace ex = stdexec;
-
-class RouterUdpPipeline {
-    const zephyr::udp::UdpRouter& router_;
-    
-public:
-    explicit RouterUdpPipeline(const zephyr::udp::UdpRouter& router) : router_(router) {}
-    
-    zephyr::udp::UdpProtocol::ResultSenderType operator()(zephyr::udp::UdpProtocol::InputType packet,
-                                              std::shared_ptr<zephyr::context::Context>) const {
-        zephyr::udp::UdpPacket udp_packet;
-        udp_packet.data = std::move(packet.data);
-        udp_packet.source_ip = std::move(packet.source_ip);
-        udp_packet.source_port = packet.source_port;
-        udp_packet.dest_port = packet.dest_port;
-        
-        std::cout << "[UDP] Routing to port " << udp_packet.dest_port << "\n";
-        
-        return zephyr::udp::UdpProtocol::ResultSenderType{ex::just(router_.route(udp_packet))};
-    }
-};
 
 // ============================================================================
 // STRAND SCHEDULER - Serializacja zadań
@@ -494,7 +474,7 @@ int main() {
     
     // UDP Server (UDP + Router Pipeline)
     auto udp_server = make_udp_server(scheduler,
-        [&udp_router]() { return RouterUdpPipeline(udp_router); }, udp_io);
+        [&udp_router]() { return zephyr::udp::UdpRouterPipeline(udp_router); }, udp_io);
     
     // Start servers
     if (!http_server.listen(8080) || !echo_server.listen(9000) || !udp_server.bind(5000)) {
