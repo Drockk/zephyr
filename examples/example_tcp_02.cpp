@@ -11,6 +11,7 @@
 #include <zephyr/tcp/tcpProtocol.hpp>
 #include <zephyr/udp/udpPacket.hpp>
 #include <zephyr/udp/udpProtocol.hpp>
+#include <zephyr/udp/udpRouter.hpp>
 
 #include <stdexec/execution.hpp>
 #include <exec/static_thread_pool.hpp>
@@ -37,50 +38,11 @@
 
 namespace ex = stdexec;
 
-// ============================================================================
-// UDP PIPELINES
-// ============================================================================
-
-// Router-based UDP Pipeline
-class UdpRouter {
-public:
-    using HandlerResult = std::optional<std::vector<uint8_t>>;
-    using SyncHandler = std::function<HandlerResult(const zephyr::udp::UdpPacket&, const zephyr::context::Context&)>;
-    
-private:
-    struct Route {
-        uint16_t port;
-        SyncHandler handler;
-    };
-    
-    std::vector<Route> routes_;
-    std::shared_ptr<zephyr::context::Context> context_;
-    
-public:
-    UdpRouter() : context_(std::make_shared<zephyr::context::Context>()) {}
-    
-    template<typename Handler>
-    void on_port(uint16_t port, Handler&& handler) {
-        routes_.push_back({port, std::forward<Handler>(handler)});
-    }
-    
-    HandlerResult route(const zephyr::udp::UdpPacket& packet) const {
-        for (const auto& route : routes_) {
-            if (route.port == packet.dest_port) {
-                return route.handler(packet, *context_);
-            }
-        }
-        return std::nullopt;
-    }
-    
-    const zephyr::context::Context& context() const { return *context_; }
-};
-
 class RouterUdpPipeline {
-    const UdpRouter& router_;
+    const zephyr::udp::UdpRouter& router_;
     
 public:
-    explicit RouterUdpPipeline(const UdpRouter& router) : router_(router) {}
+    explicit RouterUdpPipeline(const zephyr::udp::UdpRouter& router) : router_(router) {}
     
     zephyr::udp::UdpProtocol::ResultSenderType operator()(zephyr::udp::UdpProtocol::InputType packet,
                                               std::shared_ptr<zephyr::context::Context>) const {
@@ -498,7 +460,7 @@ int main() {
     });
     
     // UDP Router
-    UdpRouter udp_router;
+    zephyr::udp::UdpRouter udp_router;
     
     udp_router.on_port(5000, [](const auto& packet, const auto&) {
         std::cout << "[UDP:5000] Echo " << packet.data.size() << " bytes\n";
