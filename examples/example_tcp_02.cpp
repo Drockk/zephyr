@@ -1,5 +1,5 @@
 #include <zephyr/context/context.hpp>
-#include <zephyr/execution/strandOp.hpp>
+#include <zephyr/execution/strandSender.hpp>
 #include <zephyr/execution/strandState.hpp>
 #include <zephyr/http/middlewares/loggingMiddleware.hpp>
 #include <zephyr/http/httpMessages.hpp>
@@ -43,25 +43,6 @@ namespace ex = stdexec;
 // ============================================================================
 
 template<typename BaseScheduler>
-struct StrandSender {
-    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> st;
-    
-    using completion_signatures = ex::completion_signatures<
-        ex::set_value_t(),
-        ex::set_error_t(std::exception_ptr),
-        ex::set_stopped_t()
-    >;
-    
-    template<class Receiver>
-    auto connect(Receiver r) const {
-        return zephyr::execution::StrandOp<BaseScheduler, Receiver>{st, std::move(r)};
-    }
-};
-
-template<typename Base>
-inline constexpr bool stdexec::enable_sender<StrandSender<Base>> = true;
-
-template<typename BaseScheduler>
 class StrandScheduler {
     std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> state_;
     
@@ -70,7 +51,7 @@ public:
         : state_(std::make_shared<zephyr::execution::StrandState<BaseScheduler>>(std::move(base))) {}
     
     friend auto tag_invoke(ex::schedule_t, const StrandScheduler& s) {
-        return StrandSender<BaseScheduler>{s.state_};
+        return zephyr::execution::StrandSender<BaseScheduler>{s.state_};
     }
     
     friend bool operator==(const StrandScheduler& a, const StrandScheduler& b) = default;
