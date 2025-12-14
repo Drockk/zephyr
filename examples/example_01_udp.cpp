@@ -1,7 +1,7 @@
 #include <span>
 
-#include <zephyr/core/application.hpp>
 #include <zephyr/plugins/udp/plugin.hpp>
+#include <zephyr/zephyr.hpp>
 
 struct EchoController
 {
@@ -12,11 +12,5 @@ using App = zephyr::core::Application<zephyr::plugins::udp::Plugin<5000, EchoCon
 
 int main()
 {
-    App app;
-
-    app.init();
-    app.start();
-    app.stop();
-
-    return 0;
+    return zephyr::core::runApp<App>();
 }
