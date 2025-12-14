@@ -10,6 +10,8 @@ CPMAddPackage(
     NAME stdexec
     GITHUB_REPOSITORY NVIDIA/stdexec
     GIT_TAG main
+    OPTIONS
+        "STDEXEC_BUILD_EXAMPLES OFF"
 )
 
 # liburing - Linux io_uring library
