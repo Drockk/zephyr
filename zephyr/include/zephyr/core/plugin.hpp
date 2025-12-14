@@ -4,20 +4,14 @@
 
 namespace zephyr::core
 {
-enum class Result
-{
-    OK,
-    ERROR
-};
-
 template <class C>
 concept HasFuncInit = requires(C t_class) {
-    { t_class.init() } -> std::same_as<Result>;
+    { t_class.init() } -> std::same_as<void>;
 };
 
 template <class C>
 concept HasFuncStart = requires(C t_class) {
-    { t_class.start() } -> std::same_as<Result>;
+    { t_class.start() } -> std::same_as<void>;
 };
 
 template <class C>

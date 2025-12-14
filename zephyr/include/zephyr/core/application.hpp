@@ -4,8 +4,6 @@
 
 #include <exec/static_thread_pool.hpp>
 
-#include <exception>
-#include <iostream>
 #include <thread>
 #include <tuple>
 
@@ -37,24 +35,12 @@ public:
 private:
     auto initPlugins()
     {
-        const auto result =
-            std::apply([](auto&... t_elements) { return ((t_elements.init() == Result::OK) && ...); }, m_plugins);
-
-        if (!result) {
-            std::cerr << "Initialization failed\n";
-            std::terminate();
-        }
+        std::apply([](auto&... t_elements) { return ((t_elements.init()) && ...); }, m_plugins);
     }
 
     auto startPlugins()
     {
-        const auto result =
-            std::apply([](auto&... t_elements) { return ((t_elements.start() == Result::OK) && ...); }, m_plugins);
-
-        if (!result) {
-            std::cerr << "Start failed\n";
-            std::terminate();
-        }
+        std::apply([](auto&... t_elements) { return ((t_elements.start()) && ...); }, m_plugins);
     }
 
     exec::static_thread_pool m_threadPool;

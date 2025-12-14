@@ -2,6 +2,9 @@
 
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
+CPMAddPackage("gh:gabime/spdlog@1.16.0")
+
+
 # stdexec - C++ Senders/Receivers implementation
 CPMAddPackage(
     NAME stdexec
