@@ -14,7 +14,9 @@ int main()
 {
     App app;
 
+    app.init();
     app.start();
+    app.stop();
 
     return 0;
 }

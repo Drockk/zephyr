@@ -15,6 +15,8 @@ public:
 
     auto start() {}
 
+    auto stop() {}
+
 private:
     Controller m_controller{};
     std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};

@@ -15,5 +15,10 @@ concept HasFuncStart = requires(C t_class) {
 };
 
 template <class C>
-concept PluginConcept = HasFuncInit<C> && HasFuncStart<C>;
+concept HasFuncStop = requires(C t_class) {
+    { t_class.stop() } -> std::same_as<void>;
+};
+
+template <class C>
+concept PluginConcept = HasFuncInit<C> && HasFuncStart<C> && HasFuncStop<C>;
 }  // namespace zephyr::core

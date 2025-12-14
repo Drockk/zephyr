@@ -15,5 +15,10 @@ struct DummyPlugin
     {
         std::cout << "Start DummyPlugin\n";
     }
+
+    static auto stop()
+    {
+        std::cout << "Stop DummyPlugin\n";
+    }
 };
 }  // namespace zephyr::plugins

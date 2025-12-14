@@ -26,10 +26,19 @@ public:
         m_threadPool.request_stop();
     }
 
-    auto start()
+    auto init()
     {
         initPlugins();
+    }
+
+    auto start()
+    {
         startPlugins();
+    }
+
+    auto stop()
+    {
+        stopPlugins();
     }
 
 private:
@@ -41,6 +50,11 @@ private:
     auto startPlugins()
     {
         std::apply([](auto&... t_elements) { return ((t_elements.start()) && ...); }, m_plugins);
+    }
+
+    auto stopPlugins()
+    {
+        std::apply([](auto&... t_elements) { return ((t_elements.stop()) && ...); }, m_plugins);
     }
 
     exec::static_thread_pool m_threadPool;
