@@ -1,38 +1,182 @@
 [
-  # Mapowania dla projektu Zephyr
-  # Plik konfiguracyjny dla include-what-you-use (IWYU)
+  # Mappings for Zephyr project
+  # Configuration file for include-what-you-use (IWYU)
   
-  # Mapowania standardowej biblioteki C++
-  { include: ["<bits/std_abs.h>", "private", "<cmath>", "public"] },
-  { include: ["<bits/std_function.h>", "private", "<functional>", "public"] },
-  { include: ["<bits/refwrap.h>", "private", "<functional>", "public"] },
-  { include: ["<bits/move.h>", "private", "<utility>", "public"] },
-  { include: ["<bits/ranges_base.h>", "private", "<ranges>", "public"] },
-  { include: ["<bits/iterator_concepts.h>", "private", "<iterator>", "public"] },
+  # C++ standard library mappings
+  { include: [
+            "<bits/std_abs.h>",
+            "private",
+            "<cmath>",
+            "public"
+        ]
+    },
+    { include: [
+            "<bits/std_function.h>",
+            "private",
+            "<functional>",
+            "public"
+        ]
+    },
+    { include: [
+            "<bits/refwrap.h>",
+            "private",
+            "<functional>",
+            "public"
+        ]
+    },
+    { include: [
+            "<bits/move.h>",
+            "private",
+            "<utility>",
+            "public"
+        ]
+    },
+    { include: [
+            "<bits/ranges_base.h>",
+            "private",
+            "<ranges>",
+            "public"
+        ]
+    },
+    { include: [
+            "<bits/iterator_concepts.h>",
+            "private",
+            "<iterator>",
+            "public"
+        ]
+    },
   
   # stdexec mappings
-  { include: ["<stdexec/__detail/__config.hpp>", "private", "<stdexec/execution.hpp>", "public"] },
-  { include: ["<stdexec/__detail/__meta.hpp>", "private", "<stdexec/execution.hpp>", "public"] },
-  { include: ["<exec/__detail/__basic_sender.hpp>", "private", "<exec/async_scope.hpp>", "public"] },
+  { include: [
+            "<stdexec/__detail/__config.hpp>",
+            "private",
+            "<stdexec/execution.hpp>",
+            "public"
+        ]
+    },
+    { include: [
+            "<stdexec/__detail/__meta.hpp>",
+            "private",
+            "<stdexec/execution.hpp>",
+            "public"
+        ]
+    },
+    { include: [
+            "<exec/__detail/__basic_sender.hpp>",
+            "private",
+            "<exec/async_scope.hpp>",
+            "public"
+        ]
+    },
   
-  # System headers - preferuj standardowe
-  { symbol: ["std::size_t", "private", "<cstddef>", "public"] },
-  { symbol: ["std::ptrdiff_t", "private", "<cstddef>", "public"] },
-  { symbol: ["std::int8_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::int16_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::int32_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::int64_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::uint8_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::uint16_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::uint32_t", "private", "<cstdint>", "public"] },
-  { symbol: ["std::uint64_t", "private", "<cstdint>", "public"] },
+  # System headers - prefer standard versions
+  { symbol: [
+            "std::size_t",
+            "private",
+            "<cstddef>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::ptrdiff_t",
+            "private",
+            "<cstddef>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::int8_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::int16_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::int32_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::int64_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::uint8_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::uint16_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::uint32_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::uint64_t",
+            "private",
+            "<cstdint>",
+            "public"
+        ]
+    },
   
-  # Preferuj forward declarations dla wskaźników
-  { symbol: ["std::unique_ptr", "private", "<memory>", "public"] },
-  { symbol: ["std::shared_ptr", "private", "<memory>", "public"] },
-  { symbol: ["std::weak_ptr", "private", "<memory>", "public"] },
+  # Prefer forward declarations for pointers
+  { symbol: [
+            "std::unique_ptr",
+            "private",
+            "<memory>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::shared_ptr",
+            "private",
+            "<memory>",
+            "public"
+        ]
+    },
+    { symbol: [
+            "std::weak_ptr",
+            "private",
+            "<memory>",
+            "public"
+        ]
+    },
   
   # Networking related
-  { include: ["<netinet/in.h>", "public", "<arpa/inet.h>", "public"] },
-  { include: ["<sys/socket.h>", "public", "<arpa/inet.h>", "public"] }
+  { include: [
+            "<netinet/in.h>",
+            "public",
+            "<arpa/inet.h>",
+            "public"
+        ]
+    },
+    { include: [
+            "<sys/socket.h>",
+            "public",
+            "<arpa/inet.h>",
+            "public"
+        ]
+    }
 ]

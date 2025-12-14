@@ -24,6 +24,7 @@ target_sources(zephyr
 
 target_link_libraries(zephyr
     PUBLIC
+        spdlog
         STDEXEC::stdexec
         ${LIBURING_LIBRARIES}
 )

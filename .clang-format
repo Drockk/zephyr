@@ -1,18 +1,18 @@
 ---
-# Konfiguracja clang-format dla projektu Zephyr
+# clang-format configuration for Zephyr project
 Language: Cpp
 Standard: Latest
 
-# Podstawowe ustawienia
+# Basic settings
 BasedOnStyle: LLVM
 ColumnLimit: 120
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 
-# Nawiasy klamrowe - mixed style
-# Nowa linia dla: namespace, klasy, funkcje
-# Ta sama linia dla: if, for, while, etc.
+# Braces - mixed style
+# New line for: namespace, classes, functions
+# Same line for: if, for, while, etc.
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterCaseLabel: false
@@ -33,7 +33,7 @@ BraceWrapping:
   SplitEmptyRecord: false
   SplitEmptyNamespace: false
 
-# Wcięcia
+# Indentation
 AccessModifierOffset: -4
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
@@ -42,7 +42,7 @@ IndentPPDirectives: AfterHash
 IndentWrappedFunctionNames: false
 NamespaceIndentation: None
 
-# Spacje
+# Spaces
 SpaceAfterCStyleCast: false
 SpaceAfterLogicalNot: false
 SpaceAfterTemplateKeyword: true
@@ -60,7 +60,7 @@ SpacesInContainerLiterals: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 
-# Wyrównanie
+# Alignment
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
@@ -69,13 +69,13 @@ AlignEscapedNewlines: Right
 AlignOperands: true
 AlignTrailingComments: true
 
-# Łamanie linii
+# Line breaking
 AllowAllArgumentsOnNextLine: true
 AllowAllParametersOfDeclarationOnNextLine: true
 AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: All
 AllowShortLoopsOnASingleLine: false
@@ -89,12 +89,14 @@ BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: BeforeColon
 BreakInheritanceList: BeforeColon
 BreakStringLiterals: true
+PackConstructorInitializers: CurrentLine
+AllowAllConstructorInitializersOnNextLine: false
 
-# Puste linie
+# Empty lines
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
 
-# Sortowanie
+# Sorting
 SortIncludes: CaseInsensitive
 SortUsingDeclarations: true
 
@@ -112,7 +114,7 @@ IncludeCategories:
   - Regex:           '.*'
     Priority:        5
 
-# Inne
+# Other
 Cpp11BracedListStyle: true
 DerivePointerAlignment: false
 PointerAlignment: Left

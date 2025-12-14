@@ -1,5 +1,5 @@
 ---
-# Konfiguracja clang-tidy dla projektu Zephyr
+# clang-tidy configuration for Zephyr project
 # Standard: C++23
 
 Checks: >
@@ -51,7 +51,7 @@ HeaderFilterRegex: '.*/(zephyr|examples)/.*\.hpp$'
 FormatStyle: file
 
 CheckOptions:
-  # Naming conventions - prefixy dla zmiennych
+  # Naming conventions - variable prefixes
   - key: readability-identifier-naming.ParameterPrefix
     value: 't_'
   - key: readability-identifier-naming.ParameterCase
@@ -60,35 +60,33 @@ CheckOptions:
   - key: readability-identifier-naming.ClassMemberPrefix
     value: 'm_'
   - key: readability-identifier-naming.ClassMemberCase
-    value: 'lower_case'
+    value: 'camelBack'
   
   - key: readability-identifier-naming.PrivateMemberPrefix
     value: 'm_'
   - key: readability-identifier-naming.PrivateMemberCase
-    value: 'lower_case'
+    value: 'camelBack'
   
   - key: readability-identifier-naming.ProtectedMemberPrefix
     value: 'm_'
   - key: readability-identifier-naming.ProtectedMemberCase
-    value: 'lower_case'
+    value: 'camelBack'
   
   - key: readability-identifier-naming.PublicMemberPrefix
     value: 'm_'
   - key: readability-identifier-naming.PublicMemberCase
-    value: 'lower_case'
+    value: 'camelBack'
   
   - key: readability-identifier-naming.StaticVariablePrefix
     value: 's_'
   - key: readability-identifier-naming.StaticVariableCase
     value: 'lower_case'
   
-  # Pola struktur - bez prefiksu m_
+  # Struct fields - without m_ prefix
   - key: readability-identifier-naming.StructCase
     value: 'CamelCase'
-  - key: readability-identifier-naming.PublicMemberCase
-    value: 'lower_case'
   
-  # Klasy, typy, funkcje
+  # Classes, types, functions
   - key: readability-identifier-naming.ClassCase
     value: 'CamelCase'
   - key: readability-identifier-naming.StructCase
@@ -108,21 +106,24 @@ CheckOptions:
   - key: readability-identifier-naming.TemplateParameterCase
     value: 'CamelCase'
   
-  # Stałe i enumy
+  # Constants and enums
+  # Local const variables: camelBack
   - key: readability-identifier-naming.ConstantCase
-    value: 'UPPER_CASE'
+    value: 'camelBack'
   - key: readability-identifier-naming.EnumConstantCase
-    value: 'UPPER_CASE'
+    value: UPPER_CASE
   - key: readability-identifier-naming.GlobalConstantCase
-    value: 'UPPER_CASE'
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: UPPER_CASE
   
-  # Zmienne lokalne i globalne
+  # Local and global variables
   - key: readability-identifier-naming.LocalVariableCase
-    value: 'lower_case'
+    value: 'camelBack'
   - key: readability-identifier-naming.GlobalVariableCase
     value: 'lower_case'
   
-  # Modernizacja
+  # Modernization
   - key: modernize-use-nullptr.NullMacros
     value: 'NULL'
   

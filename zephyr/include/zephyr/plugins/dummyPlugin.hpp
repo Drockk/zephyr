@@ -1,23 +1,23 @@
 #pragma once
 
-#include <iostream>
-
 #include "zephyr/core/plugin.hpp"
+
+#include <iostream>
 
 namespace zephyr::plugins
 {
 struct DummyPlugin
 {
-    auto init()
+    static auto init()
     {
         std::cout << "Init DummyPlugin\n";
-        return core::Result::ok;
+        return core::Result::OK;
     }
 
-    auto start()
+    static auto start()
     {
         std::cout << "Start DummyPlugin\n";
-        return core::Result::ok;
+        return core::Result::OK;
     }
 };
-}
+}  // namespace zephyr::plugins
