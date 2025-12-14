@@ -1,6 +1,5 @@
 #include <zephyr/context/context.hpp>
-#include <zephyr/execution/strandSender.hpp>
-#include <zephyr/execution/strandState.hpp>
+#include <zephyr/execution/strandScheduler.hpp>
 #include <zephyr/http/middlewares/loggingMiddleware.hpp>
 #include <zephyr/http/httpMessages.hpp>
 #include <zephyr/http/httpPipelineBuilder.hpp>
@@ -9,6 +8,7 @@
 #include <zephyr/pipeline/pipelineConcept.hpp>
 #include <zephyr/pipelines/rawPipeline.hpp>
 #include <zephyr/tcp/tcpProtocol.hpp>
+#include <zephyr/tcp/tcpSession.hpp>
 #include <zephyr/udp/udpProtocol.hpp>
 #include <zephyr/udp/udpRouter.hpp>
 #include <zephyr/udp/udpRouterPipeline.hpp>
@@ -39,112 +39,6 @@
 namespace ex = stdexec;
 
 // ============================================================================
-// STRAND SCHEDULER - Serializacja zadań
-// ============================================================================
-
-template<typename BaseScheduler>
-class StrandScheduler {
-    std::shared_ptr<zephyr::execution::StrandState<BaseScheduler>> state_;
-    
-public:
-    explicit StrandScheduler(BaseScheduler base)
-        : state_(std::make_shared<zephyr::execution::StrandState<BaseScheduler>>(std::move(base))) {}
-    
-    friend auto tag_invoke(ex::schedule_t, const StrandScheduler& s) {
-        return zephyr::execution::StrandSender<BaseScheduler>{s.state_};
-    }
-    
-    friend bool operator==(const StrandScheduler& a, const StrandScheduler& b) = default;
-};
-
-// ============================================================================
-// TCP SESSION - Generyczna sesja TCP
-// ============================================================================
-
-template<zephyr::pipeline::PipelineConcept<zephyr::tcp::TcpProtocol> Pipeline>
-class TcpSession : public std::enable_shared_from_this<TcpSession<Pipeline>> {
-public:
-    using OnCloseCallback = std::function<void(int)>;
-    
-private:
-    int socket_fd_;
-    exec::single_thread_context strand_ctx_;
-    StrandScheduler<decltype(strand_ctx_.get_scheduler())> strand_;
-    Pipeline pipeline_;
-    std::shared_ptr<zephyr::io::IoUringContext> io_ctx_;
-    std::shared_ptr<zephyr::context::Context> context_;
-    OnCloseCallback on_close_;
-    bool is_active_ = true;
-    
-public:
-    TcpSession(int fd, Pipeline pipeline, std::shared_ptr<zephyr::io::IoUringContext> io,
-               OnCloseCallback on_close = nullptr)
-        : socket_fd_(fd)
-        , strand_(strand_ctx_.get_scheduler())
-        , pipeline_(std::move(pipeline))
-        , io_ctx_(std::move(io))
-        , context_(std::make_shared<zephyr::context::Context>())
-        , on_close_(std::move(on_close)) 
-    {
-        std::cout << "[TCP:" << socket_fd_ << "] Session created\n";
-    }
-    
-    ~TcpSession() {
-        std::cout << "[TCP:" << socket_fd_ << "] Session destroyed\n";
-        if (socket_fd_ >= 0) ::close(socket_fd_);
-    }
-    
-    void start() { read_loop(); }
-    void stop() { is_active_ = false; }
-    int fd() const { return socket_fd_; }
-    
-private:
-    void read_loop() {
-        auto self = this->shared_from_this();
-        
-        auto work = ex::schedule(strand_)
-            | ex::then([self]() -> std::optional<std::string> {
-                std::array<char, 4096> buffer;
-                auto n = self->io_ctx_->receive(self->socket_fd_, 
-                    std::as_writable_bytes(std::span{buffer}));
-                
-                if (n > 0) return std::string(buffer.data(), n);
-                if (n == 0) return std::nullopt;
-                throw std::runtime_error("Read error");
-            })
-            | ex::let_value([self](std::optional<std::string> data) {
-                if (!data) {
-                    std::cout << "[TCP:" << self->socket_fd_ << "] Connection closed\n";
-                    self->is_active_ = false;
-                    if (self->on_close_) self->on_close_(self->socket_fd_);
-                    return zephyr::tcp::TcpProtocol::ResultSenderType{ex::just(zephyr::tcp::TcpProtocol::OutputType{})};
-                }
-                
-                std::cout << "[TCP:" << self->socket_fd_ << "] Received " << data->size() << " bytes\n";
-                return self->pipeline_(std::move(*data), self->context_);
-            })
-            | ex::then([self](zephyr::tcp::TcpProtocol::OutputType result) {
-                if (result && !result->empty()) {
-                    auto sent = self->io_ctx_->send(self->socket_fd_,
-                        std::as_bytes(std::span{*result}));
-                    std::cout << "[TCP:" << self->socket_fd_ << "] Sent " << sent << " bytes\n";
-                }
-                if (self->is_active_) self->read_loop();
-            })
-            | ex::upon_error([self](std::exception_ptr e) {
-                try { std::rethrow_exception(e); }
-                catch (const std::exception& ex) {
-                    std::cout << "[TCP:" << self->socket_fd_ << "] Error: " << ex.what() << "\n";
-                }
-                self->is_active_ = false;
-                if (self->on_close_) self->on_close_(self->socket_fd_);
-            });
-        
-        ex::start_detached(std::move(work));
-    }
-};
-
-// ============================================================================
 // TCP SERVER
 // ============================================================================
 
@@ -152,7 +46,7 @@ template<typename Scheduler, typename PipelineFactory>
     requires std::invocable<PipelineFactory>
 class TcpServer {
     using PipelineType = std::invoke_result_t<PipelineFactory>;
-    using Session = TcpSession<PipelineType>;
+    using Session = zephyr::tcp::TcpSession<PipelineType>;
     
     int listen_socket_ = -1;
     Scheduler scheduler_;
