@@ -6,9 +6,40 @@
     "clangd.path": "clangd",
     "clangd.arguments": [
         "--compile-commands-dir=${workspaceFolder}/build/debug",
-        "--header-insertion=never"
+        "--header-insertion=never",
+        "--clang-tidy",
+        "--background-index",
+        "--completion-style=detailed",
+        "--pch-storage=memory"
     ],
 
     // Keep default standard hint
-    "C_Cpp.default.cppStandard": "c++23"
+    "C_Cpp.default.cppStandard": "c++23",
+
+    // Formatowanie - clang-format
+    "editor.formatOnSave": true,
+    "editor.formatOnType": false,
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.formatOnSave": true
+    },
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.formatOnSave": true
+    },
+
+    // clang-tidy
+    "clangd.onConfigChanged": "restart",
+    
+    // Wykrywanie plików
+    "files.associations": {
+        "*.hpp": "cpp",
+        "*.cpp": "cpp",
+        "*.h": "c",
+        "*.c": "c"
+    },
+
+    // Cmake
+    "cmake.configureOnOpen": false,
+    "cmake.format.allowOptionalArgumentIndentation": true
 }

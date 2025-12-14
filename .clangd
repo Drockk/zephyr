@@ -7,4 +7,45 @@ CompileFlags:
     - "-fconcepts-diagnostics-depth=*"
   Add:
     - "-std=c++23"
+    - "-Wall"
+    - "-Wextra"
+    - "-Wpedantic"
   Compiler: "/usr/bin/g++"
+
+Index:
+  Background: Build
+  StandardLibrary: Yes
+
+Diagnostics:
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - clang-analyzer-*
+      - concurrency-*
+      - cppcoreguidelines-*
+      - modernize-*
+      - performance-*
+      - readability-*
+      - misc-static-assert
+      - misc-const-correctness
+      - misc-include-cleaner
+      - portability-*
+    Remove:
+      - modernize-use-trailing-return-type
+      - cppcoreguidelines-avoid-magic-numbers
+      - readability-magic-numbers
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+  Designators: Yes
+  BlockEnd: Yes
+
+Completion:
+  AllScopes: Yes
+
+Hover:
+  ShowAKA: Yes
