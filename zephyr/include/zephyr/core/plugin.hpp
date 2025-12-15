@@ -1,6 +1,9 @@
 #pragma once
 
+#include <exec/static_thread_pool.hpp>
+
 #include <concepts>
+#include <utility>
 
 namespace zephyr::core
 {
@@ -11,7 +14,7 @@ concept HasFuncInit = requires(C t_class) {
 
 template <class C>
 concept HasFuncStart = requires(C t_class) {
-    { t_class.start() } -> std::same_as<void>;
+    { t_class.start(std::declval<exec::static_thread_pool::scheduler>()) } -> std::same_as<void>;
 };
 
 template <class C>

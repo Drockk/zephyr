@@ -23,6 +23,7 @@ public:
 
     ~Application()
     {
+        stopPlugins();
         m_threadPool.request_stop();
     }
 
@@ -49,7 +50,8 @@ private:
 
     auto startPlugins()
     {
-        std::apply([](auto&... t_elements) { return ((t_elements.start()) && ...); }, m_plugins);
+        std::apply([scheduler = m_scheduler](auto&... t_elements) { return ((t_elements.start(scheduler)) && ...); },
+                   m_plugins);
     }
 
     auto stopPlugins()

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exec/static_thread_pool.hpp>
+
 #include <iostream>
 
 namespace zephyr::plugins
@@ -11,7 +13,7 @@ struct DummyPlugin
         std::cout << "Init DummyPlugin\n";
     }
 
-    static auto start()
+    static auto start(exec::static_thread_pool::scheduler)
     {
         std::cout << "Start DummyPlugin\n";
     }

@@ -55,7 +55,7 @@ CheckOptions:
   - key: readability-identifier-naming.ParameterPrefix
     value: 't_'
   - key: readability-identifier-naming.ParameterCase
-    value: 'lower_case'
+    value: 'camelBack'
   
   - key: readability-identifier-naming.ClassMemberPrefix
     value: 'm_'
