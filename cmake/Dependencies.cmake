@@ -2,7 +2,15 @@
 
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
-CPMAddPackage("gh:gabime/spdlog@1.16.0")
+CPMAddPackage(
+    NAME spdlog
+    GITHUB_REPOSITORY gabime/spdlog
+    VERSION 1.16.0
+    OPTIONS
+        "SPDLOG_BUILD_SHARED ON"
+        "SPDLOG_BUILD_EXAMPLES OFF"
+        "SPDLOG_BUILD_TESTS OFF"
+)
 
 
 # stdexec - C++ Senders/Receivers implementation

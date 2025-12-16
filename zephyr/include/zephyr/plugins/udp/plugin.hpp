@@ -1,6 +1,7 @@
 #pragma once
 
 #include "zephyr/common/resultSender.hpp"
+#include "zephyr/core/logger.hpp"
 #include "zephyr/io/ioUringContext.hpp"
 #include "zephyr/plugins/udp/concept.hpp"
 #include "zephyr/plugins/udp/details/protocol.hpp"
@@ -45,6 +46,10 @@ public:
 
     auto init() -> void
     {
+        m_logger = core::Logger::createLogger("UDP");
+
+        ZEPHYR_LOG_INFO(m_logger, "Starting UDP plugin");
+
         bindSocket();
     }
 
@@ -81,33 +86,33 @@ private:
         }
     }
 
-    auto receiveLoop(exec::static_thread_pool::scheduler t_scheduler) -> void
+    auto receiveLoop([[maybe_unused]] exec::static_thread_pool::scheduler t_scheduler) -> void
     {
         if (m_isRunning.load()) {
             return;
         }
 
-        auto work = stdexec::schedule(t_scheduler) | stdexec::then([this]() { receive(); })
-                    | stdexec::let_value([this](auto t_maybePacket) {
-                          using Result = std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>;
-                          using Sender = common::ResultSender<Result>;
+        // auto work = stdexec::schedule(t_scheduler) | stdexec::then([this]() { receive(); })
+        //             | stdexec::let_value([this](auto t_maybePacket) {
+        //                   using Result = std::optional<std::pair<std::vector<uint8_t>, sockaddr_in>>;
+        //                   using Sender = common::ResultSender<Result>;
 
-                          if (!t_maybePacket) {
-                              return Sender{stdexec::just(Result{})};
-                          }
-                      })
-                    | stdexec::then(/*maybe response*/)
-                    | stdexec::upon_error([this, scheduler = t_scheduler](std::exception_ptr t_exceptionPtr) {
-                          try {
-                              std::rethrow_exception(t_exceptionPtr)
-                          } catch (const std::exception& t_exception) {
-                              // Log Error
-                          }
+        //                   if (!t_maybePacket) {
+        //                       return Sender{stdexec::just(Result{})};
+        //                   }
+        //               })
+        //             | stdexec::then(/*maybe response*/)
+        //             | stdexec::upon_error([this, scheduler = t_scheduler](std::exception_ptr t_exceptionPtr) {
+        //                   try {
+        //                       std::rethrow_exception(t_exceptionPtr)
+        //                   } catch (const std::exception& t_exception) {
+        //                       // Log Error
+        //                   }
 
-                          if (m_isRunning.load()) {
-                              receiveLoop(scheduler);
-                          }
-                      });
+        //                   if (m_isRunning.load()) {
+        //                       receiveLoop(scheduler);
+        //                   }
+        //               });
     }
 
     auto receive() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>>
@@ -142,5 +147,6 @@ private:
     std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
     int m_socket{-1};
     std::atomic<bool> m_isRunning{false};
+    core::Logger::LoggerPtr m_logger;
 };
 }  // namespace zephyr::plugins::udp
