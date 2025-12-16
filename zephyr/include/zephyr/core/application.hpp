@@ -3,9 +3,9 @@
 #include "zephyr/core/logger.hpp"
 #include "zephyr/core/plugin.hpp"
 
+#include <exec/linux/io_uring_context.hpp>
 #include <exec/static_thread_pool.hpp>
 
-#include <chrono>
 #include <thread>
 #include <tuple>
 
@@ -43,7 +43,11 @@ public:
     auto start()
     {
         startPlugins();
-        std::this_thread::sleep_for(5s);
+
+        std::jthread loop([this] { stdexec::sync_wait(m_context.run(exec::until::stopped)); });
+        if (loop.joinable()) {
+            loop.join();
+        }
     }
 
     auto stop()
@@ -71,7 +75,9 @@ private:
     }
 
     Logger::LoggerPtr m_logger;
-    exec::static_thread_pool m_threadPool{std::thread::hardware_concurrency() - 1};  // - Logger thread
+    exec::static_thread_pool m_threadPool{std::thread::hardware_concurrency()
+                                          - 2};  // - Logger thread - io_uring thread
     std::tuple<Plugins...> m_plugins{};
+    exec::io_uring_context m_context{1024};
 };
 }  // namespace zephyr::core

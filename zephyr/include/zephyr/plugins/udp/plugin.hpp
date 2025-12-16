@@ -100,7 +100,10 @@ private:
         //                   if (!t_maybePacket) {
         //                       return Sender{stdexec::just(Result{})};
         //                   }
-        //               })
+
+        //                   auto [packet, address] = std::move(*t_maybePacket);
+        //                   return Sender()
+        //               });
         //             | stdexec::then(/*maybe response*/)
         //             | stdexec::upon_error([this, scheduler = t_scheduler](std::exception_ptr t_exceptionPtr) {
         //                   try {
@@ -113,6 +116,8 @@ private:
         //                       receiveLoop(scheduler);
         //                   }
         //               });
+
+        // stdexec::start_detached(std::move(work));
     }
 
     auto receive() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>>

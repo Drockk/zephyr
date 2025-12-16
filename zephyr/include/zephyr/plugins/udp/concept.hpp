@@ -1,5 +1,7 @@
 #pragma once
 
+#include "zephyr/plugins/udp/details/protocol.hpp"
+
 #include <concepts>
 #include <span>
 #include <utility>
@@ -8,7 +10,7 @@ namespace zephyr::plugins::udp
 {
 template <class C>
 concept HasOnMessage = requires(C t_class) {
-    { t_class.onMessage(std::declval<std::span<char>>()) } -> std::same_as<void>;
+    { t_class.onMessage(std::declval<std::span<char>>()) } -> std::same_as<UdpProtocol::OutputType>;
 };
 
 template <class C>
