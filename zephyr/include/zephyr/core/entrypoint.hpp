@@ -14,10 +14,9 @@ int runApp()
 #ifdef NDEBUG
     try {
 #endif
-        AppType app;
-
         Logger::init();
 
+        AppType app;
         app.init();
         app.start();
         app.stop();
