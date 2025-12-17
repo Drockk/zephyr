@@ -74,17 +74,17 @@ constexpr auto AddressV4::broadcast() noexcept -> AddressV4
     return AddressV4{BytesType{255, 255, 255, 255}};
 }
 
-constexpr bool AddressV4::isLoopback() const noexcept
+constexpr auto AddressV4::isLoopback() const noexcept -> bool
 {
     return m_bytes.at(0) == 127;
 }
 
-constexpr bool AddressV4::isMulticast() const noexcept
+constexpr auto AddressV4::isMulticast() const noexcept -> bool
 {
     return (m_bytes[0] & 0xF0) == 0xE0;
 }
 
-constexpr bool AddressV4::isUnspecified() const noexcept
+constexpr auto AddressV4::isUnspecified() const noexcept -> bool
 {
     return toUint() == 0;
 }

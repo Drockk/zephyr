@@ -32,14 +32,14 @@ public:
     [[nodiscard]] static constexpr auto loopback() noexcept -> AddressV4;
     [[nodiscard]] static constexpr auto broadcast() noexcept -> AddressV4;
 
-    [[nodiscard]] constexpr bool isLoopback() const noexcept;
-    [[nodiscard]] constexpr bool isMulticast() const noexcept;
-    [[nodiscard]] constexpr bool isUnspecified() const noexcept;
+    [[nodiscard]] constexpr auto isLoopback() const noexcept -> bool;
+    [[nodiscard]] constexpr auto isMulticast() const noexcept -> bool;
+    [[nodiscard]] constexpr auto isUnspecified() const noexcept -> bool;
 
     [[nodiscard]] static auto fromString(std::string_view t_address) noexcept -> details::ParseResult<AddressV4>;
     [[nodiscard]] auto toString() const -> std::string;
 
-    friend constexpr bool operator==(const AddressV4&, const AddressV4&) = default;
+    friend constexpr auto operator==(const AddressV4&, const AddressV4&) -> bool = default;
     friend constexpr auto operator<=>(const AddressV4&, const AddressV4&) = default;
 
 private:
