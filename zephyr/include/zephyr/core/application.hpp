@@ -1,7 +1,7 @@
 #pragma once
 
 #include "zephyr/core/logger.hpp"
-#include "zephyr/core/plugin.hpp"
+#include "zephyr/core/pluginConcept.hpp"
 
 #include <exec/linux/io_uring_context.hpp>
 #include <exec/static_thread_pool.hpp>
