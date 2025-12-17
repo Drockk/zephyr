@@ -2,20 +2,37 @@
 
 #include "zephyr/core/logger.hpp"
 
+#ifdef NDEBUG
+#    include <iostream>
+#endif
+
 namespace zephyr::core
 {
 template <typename AppType>
 int runApp()
 {
-    AppType app;
+#ifdef NDEBUG
+    try {
+#endif
+        AppType app;
 
-    Logger::init();
+        Logger::init();
 
-    app.init();
-    app.start();
-    app.stop();
+        app.init();
+        app.start();
+        app.stop();
 
-    Logger::shutdown();
+        Logger::shutdown();
+
+#ifdef NDEBUG
+    } catch (const std::exception& t_exception) {
+        std::cerr << t_exception.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "Uknown exception\n";
+        return 1;
+    }
+#endif
 
     return 0;
 }
