@@ -53,7 +53,7 @@ public:
         bindSocket();
     }
 
-    auto start(exec::static_thread_pool::scheduler t_scheduler) -> void
+    auto start(stdexec::scheduler auto t_scheduler) -> void
     {
         receiveLoop(t_scheduler);
     }
@@ -83,14 +83,20 @@ private:
 
         if (bind(m_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
             close(m_socket);
+            m_socket = -1;
+            throw std::runtime_error("Cannot bind UDP socket to: ADDRES:PORT, error?");
         }
+
+        ZEPHYR_LOG_INFO(m_logger, "Bound {}:{}", INADDR_ANY, PORT);
     }
 
-    auto receiveLoop([[maybe_unused]] exec::static_thread_pool::scheduler t_scheduler) -> void
+    auto receiveLoop([[maybe_unused]] stdexec::scheduler auto t_scheduler) -> void
     {
         if (m_isRunning.load()) {
             return;
         }
+
+        // auto strandScheduler =
 
         // auto work = stdexec::schedule(t_scheduler) | stdexec::then([this]() { receive(); })
         //             | stdexec::let_value([this](auto t_maybePacket) {

@@ -64,7 +64,7 @@ private:
 
     auto startPlugins()
     {
-        std::apply([scheduler = m_threadPool.get_scheduler()](
+        std::apply([scheduler = m_context.get_scheduler()](
                        auto&... t_elements) { return ((t_elements.start(scheduler)) && ...); },
                    m_plugins);
     }

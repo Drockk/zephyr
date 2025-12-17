@@ -1,6 +1,6 @@
 #pragma once
 
-#include <exec/static_thread_pool.hpp>
+#include <stdexec/execution.hpp>
 
 #include <iostream>
 
@@ -13,7 +13,7 @@ struct DummyPlugin
         std::cout << "Init DummyPlugin\n";
     }
 
-    static auto start(exec::static_thread_pool::scheduler)
+    static auto start(stdexec::scheduler auto)
     {
         std::cout << "Start DummyPlugin\n";
     }
