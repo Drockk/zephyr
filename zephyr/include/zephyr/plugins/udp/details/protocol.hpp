@@ -1,6 +1,6 @@
 #pragma once
 
-#include "zephyr/common/resultSender.hpp"
+// #include "zephyr/common/resultSender.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -23,7 +23,7 @@ struct UdpProtocol
     };
 
     using OutputType = std::optional<std::vector<uint8_t>>;
-    using ResultSenderType = common::ResultSender<OutputType>;
+    // using ResultSenderType = common::ResultSender<OutputType>;
 
     static constexpr auto SOCKET_TYPE = SOCK_DGRAM;
     static constexpr auto* NAME = "UDP";

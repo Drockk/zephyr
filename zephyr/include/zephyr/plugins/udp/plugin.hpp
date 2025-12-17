@@ -1,8 +1,8 @@
 #pragma once
 
-#include "zephyr/common/resultSender.hpp"
+// #include "zephyr/common/resultSender.hpp"
 #include "zephyr/core/logger.hpp"
-#include "zephyr/io/ioUringContext.hpp"
+// #include "zephyr/io/ioUringContext.hpp"
 #include "zephyr/plugins/udp/concept.hpp"
 #include "zephyr/plugins/udp/details/protocol.hpp"
 
@@ -61,7 +61,7 @@ public:
     auto stop()
     {
         m_isRunning.store(false);
-        m_ioContext->cancel();
+        // m_ioContext->cancel();
         if (m_socket >= 0) {
             close(m_socket);
             m_socket = -1;
@@ -128,34 +128,34 @@ private:
 
     auto receive() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>>
     {
-        if (!m_isRunning.load()) {
-            return std::nullopt;
-        }
+        // if (!m_isRunning.load()) {
+        //     return std::nullopt;
+        // }
 
-        std::array<std::byte, 65536> buffer{};
-        sockaddr_in clientAddress{};
+        // std::array<std::byte, 65536> buffer{};
+        // sockaddr_in clientAddress{};
 
-        auto messageLength = m_ioContext->recvfrom(m_socket, buffer, clientAddress);
-        if (!m_isRunning.load() || messageLength <= 0) {
-            return std::nullopt;
-        }
+        // auto messageLength = m_ioContext->recvfrom(m_socket, buffer, clientAddress);
+        // if (!m_isRunning.load() || messageLength <= 0) {
+        //     return std::nullopt;
+        // }
 
-        sockaddr_in localAddress{};
-        socklen_t localAddressLength = sizeof(localAddress);
-        getsockname(m_socket, reinterpret_cast<sockaddr*>(&localAddress), &localAddressLength);
+        // sockaddr_in localAddress{};
+        // socklen_t localAddressLength = sizeof(localAddress);
+        // getsockname(m_socket, reinterpret_cast<sockaddr*>(&localAddress), &localAddressLength);
 
-        UdpProtocol::InputType packet{.sourceIp = inet_ntoa(clientAddress.sin_addr),
-                                      .sourcePort = ntohs(clientAddress.sin_port),
-                                      .destPort = ntohs(localAddress.sin_port),
-                                      .clientAddr = clientAddress,
-                                      .data = {reinterpret_cast<uint8_t*>(buffer.data()),
-                                               reinterpret_cast<uint8_t*>(buffer.data()) + messageLength}};
+        // UdpProtocol::InputType packet{.sourceIp = inet_ntoa(clientAddress.sin_addr),
+        //                               .sourcePort = ntohs(clientAddress.sin_port),
+        //                               .destPort = ntohs(localAddress.sin_port),
+        //                               .clientAddr = clientAddress,
+        //                               .data = {reinterpret_cast<uint8_t*>(buffer.data()),
+        //                                        reinterpret_cast<uint8_t*>(buffer.data()) + messageLength}};
 
-        return std::make_pair(std::move(packet), clientAddress);
+        // return std::make_pair(std::move(packet), clientAddress);
     }
 
     Controller m_controller{};
-    std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
+    // std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
     int m_socket{-1};
     std::atomic<bool> m_isRunning{false};
     core::Logger::LoggerPtr m_logger;
