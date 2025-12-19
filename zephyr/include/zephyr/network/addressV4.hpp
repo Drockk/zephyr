@@ -3,7 +3,9 @@
 #include "zephyr/network/details/protocolConcept.hpp"
 
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -24,17 +26,50 @@ public:
 
     constexpr explicit AddressV4(const sockaddr_in& t_address) noexcept;
 
-    [[nodiscard]] constexpr auto toBytes() const noexcept -> BytesType;
-    [[nodiscard]] constexpr auto toUint() const noexcept -> uint32_t;
-    [[nodiscard]] constexpr auto toNetworkOrder() const noexcept -> uint32_t;
+    [[nodiscard]] constexpr auto toBytes() const noexcept -> BytesType
+    {
+        return m_bytes;
+    }
+    [[nodiscard]] constexpr auto toUint() const noexcept -> uint32_t
+    {
+        return (static_cast<uint32_t>(m_bytes[0]) << 24) | (static_cast<uint32_t>(m_bytes[1]) << 16)
+               | (static_cast<uint32_t>(m_bytes[2]) << 8) | static_cast<uint32_t>(m_bytes[3]);
+    }
+    [[nodiscard]] constexpr auto toNetworkOrder() const noexcept -> uint32_t
+    {
+        const auto value = toUint();
+        if constexpr (std::endian::native == std::endian::little) {
+            return std::byteswap(value);
+        } else {
+            return value;
+        }
+    }
 
-    [[nodiscard]] static constexpr auto any() noexcept -> AddressV4;
-    [[nodiscard]] static constexpr auto loopback() noexcept -> AddressV4;
-    [[nodiscard]] static constexpr auto broadcast() noexcept -> AddressV4;
+    [[nodiscard]] static constexpr auto any() noexcept -> AddressV4
+    {
+        return AddressV4{0};
+    }
+    [[nodiscard]] static constexpr auto loopback() noexcept -> AddressV4
+    {
+        return AddressV4{BytesType{127, 0, 0, 1}};
+    }
+    [[nodiscard]] static constexpr auto broadcast() noexcept -> AddressV4
+    {
+        return AddressV4{BytesType{255, 255, 255, 255}};
+    }
 
-    [[nodiscard]] constexpr auto isLoopback() const noexcept -> bool;
-    [[nodiscard]] constexpr auto isMulticast() const noexcept -> bool;
-    [[nodiscard]] constexpr auto isUnspecified() const noexcept -> bool;
+    [[nodiscard]] constexpr auto isLoopback() const noexcept -> bool
+    {
+        return m_bytes[0] == 127;
+    }
+    [[nodiscard]] constexpr auto isMulticast() const noexcept -> bool
+    {
+        return (m_bytes[0] & 0xF0) == 0xE0;
+    }
+    [[nodiscard]] constexpr auto isUnspecified() const noexcept -> bool
+    {
+        return toUint() == 0;
+    }
 
     [[nodiscard]] static auto fromString(std::string_view t_address) noexcept -> details::ParseResult<AddressV4>;
     [[nodiscard]] auto toString() const -> std::string;
@@ -46,3 +81,12 @@ private:
     BytesType m_bytes{};
 };
 }  // namespace zephyr::network
+
+template <>
+struct std::formatter<zephyr::network::AddressV4> : std::formatter<std::string>
+{
+    auto format(const zephyr::network::AddressV4& t_addr, std::format_context& t_ctx) const
+    {
+        return std::formatter<std::string>::format(t_addr.toString(), t_ctx);
+    }
+};

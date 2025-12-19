@@ -43,59 +43,13 @@ constexpr AddressV4::AddressV4(const sockaddr_in& t_address) noexcept
     m_bytes[3] = static_cast<uint8_t>(ip & 0xFF);
 }
 
-constexpr auto AddressV4::toBytes() const noexcept -> BytesType
-{
-    return m_bytes;
-}
-
-constexpr auto AddressV4::toUint() const noexcept -> uint32_t
-{
-    return (static_cast<uint32_t>(m_bytes[0]) << 24) | (static_cast<uint32_t>(m_bytes[1]) << 16)
-           | (static_cast<uint32_t>(m_bytes[2]) << 8) | static_cast<uint32_t>(m_bytes[3]);
-}
-
-constexpr auto AddressV4::toNetworkOrder() const noexcept -> uint32_t
-{
-    return htonl(toUint());
-}
-
-constexpr auto AddressV4::any() noexcept -> AddressV4
-{
-    return AddressV4{0};
-}
-
-constexpr auto AddressV4::loopback() noexcept -> AddressV4
-{
-    return AddressV4{BytesType{127, 0, 0, 1}};
-}
-
-constexpr auto AddressV4::broadcast() noexcept -> AddressV4
-{
-    return AddressV4{BytesType{255, 255, 255, 255}};
-}
-
-constexpr auto AddressV4::isLoopback() const noexcept -> bool
-{
-    return m_bytes.at(0) == 127;
-}
-
-constexpr auto AddressV4::isMulticast() const noexcept -> bool
-{
-    return (m_bytes[0] & 0xF0) == 0xE0;
-}
-
-constexpr auto AddressV4::isUnspecified() const noexcept -> bool
-{
-    return toUint() == 0;
-}
-
 auto AddressV4::fromString(std::string_view t_address) noexcept -> details::ParseResult<AddressV4>
 {
-    if (t_address.size() > 15) {
+    if (t_address.size() > INET_ADDRSTRLEN - 1) {
         return std::nullopt;
     }
 
-    std::array<char, 16> buffer{};
+    std::array<char, INET_ADDRSTRLEN> buffer{};
     std::copy(t_address.begin(), t_address.end(), buffer.data());
     buffer.at(t_address.size()) = '\0';
 
