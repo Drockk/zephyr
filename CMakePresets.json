@@ -69,5 +69,20 @@
             "name": "release-with-debug",
             "configurePreset": "release-with-debug"
         }
+    ],
+    "workflowPresets": [
+        {
+            "name": "debug",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "debug"
+                },
+                {
+                    "type": "build",
+                    "name": "debug"
+                }
+            ]
+        }
     ]
 }

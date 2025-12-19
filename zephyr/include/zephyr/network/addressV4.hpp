@@ -22,9 +22,22 @@ public:
 
     constexpr explicit AddressV4(const BytesType& t_bytes) noexcept : m_bytes(t_bytes) {}
 
-    constexpr explicit AddressV4(uint32_t t_address) noexcept;
+    constexpr explicit AddressV4(uint32_t t_address) noexcept
+    {
+        m_bytes[0] = static_cast<uint8_t>((t_address >> 24) & 0xFF);
+        m_bytes[1] = static_cast<uint8_t>((t_address >> 16) & 0xFF);
+        m_bytes[2] = static_cast<uint8_t>((t_address >> 8) & 0xFF);
+        m_bytes[3] = static_cast<uint8_t>(t_address & 0xFF);
+    }
 
-    constexpr explicit AddressV4(const sockaddr_in& t_address) noexcept;
+    constexpr explicit AddressV4(const sockaddr_in& t_address) noexcept
+    {
+        const auto ip = ntohl(t_address.sin_addr.s_addr);
+        m_bytes[0] = static_cast<uint8_t>((ip >> 24) & 0xFF);
+        m_bytes[1] = static_cast<uint8_t>((ip >> 16) & 0xFF);
+        m_bytes[2] = static_cast<uint8_t>((ip >> 8) & 0xFF);
+        m_bytes[3] = static_cast<uint8_t>(ip & 0xFF);
+    }
 
     [[nodiscard]] constexpr auto toBytes() const noexcept -> BytesType
     {
