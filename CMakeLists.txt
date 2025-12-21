@@ -10,7 +10,7 @@ project(zephyr
 # Project Options
 # =============================================================================
 option(ZEPHYR_BUILD_EXAMPLES "Build example applications" ON)
-option(ZEPHYR_BUILD_TESTS "Build unit tests" OFF)
+option(ZEPHYR_BUILD_TESTS "Build unit tests" ON)
 option(ZEPHYR_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(ZEPHYR_ENABLE_IWYU "Enable include-what-you-use checks" OFF)
 
@@ -65,6 +65,7 @@ if(ZEPHYR_BUILD_EXAMPLES)
 endif()
 
 if(ZEPHYR_BUILD_TESTS)
+    include(CTest)
     enable_testing()
-    # add_subdirectory(tests)
+    add_subdirectory(tests)
 endif()

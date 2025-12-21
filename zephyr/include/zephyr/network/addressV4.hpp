@@ -18,6 +18,8 @@ class AddressV4
 public:
     using BytesType = std::array<uint8_t, 4>;
 
+    constexpr explicit AddressV4() = default;
+
     explicit AddressV4(std::string_view t_address);
 
     constexpr explicit AddressV4(const BytesType& t_bytes) noexcept : m_bytes(t_bytes) {}
