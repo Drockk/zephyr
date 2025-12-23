@@ -3,6 +3,7 @@
 // #include "zephyr/common/resultSender.hpp"
 #include "zephyr/core/logger.hpp"
 // #include "zephyr/io/ioUringContext.hpp"
+#include "zephyr/network/endpoint.hpp"
 #include "zephyr/plugins/udp/concept.hpp"
 #include "zephyr/plugins/udp/details/protocol.hpp"
 
@@ -28,7 +29,7 @@
 
 namespace zephyr::plugins::udp
 {
-template <int16_t PORT, ControllerConcept Controller>
+template <uint16_t PORT, network::AddressV4 ADDRESS, ControllerConcept Controller>
 class Plugin
 {
 public:
@@ -78,16 +79,16 @@ private:
 
         sockaddr_in address{};
         address.sin_family = AF_INET;
-        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_addr.s_addr = ADDRESS.toNetworkOrder();
         address.sin_port = htons(PORT);
 
         if (bind(m_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
             close(m_socket);
             m_socket = -1;
-            throw std::runtime_error("Cannot bind UDP socket to: ADDRES:PORT, error?");
+            throw std::runtime_error(std::format("Cannot bind UDP socket to {}:{}", ADDRESS.toString(), PORT));
         }
 
-        ZEPHYR_LOG_INFO(m_logger, "Bound {}:{}", INADDR_ANY, PORT);
+        ZEPHYR_LOG_INFO(m_logger, "Bound {}:{}", ADDRESS.toString(), PORT);
     }
 
     auto receiveLoop([[maybe_unused]] stdexec::scheduler auto t_scheduler) -> void

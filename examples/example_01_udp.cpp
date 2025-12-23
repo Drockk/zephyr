@@ -13,7 +13,10 @@ struct EchoController
     }
 };
 
-using App = zephyr::core::Application<zephyr::plugins::udp::Plugin<5000, EchoController>>;
+constexpr auto udpAddress = zephyr::network::AddressV4{};
+constexpr uint16_t udpPort = 5000;
+
+using App = zephyr::core::Application<zephyr::plugins::udp::Plugin<udpPort, udpAddress, EchoController>>;
 
 int main()
 {

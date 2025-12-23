@@ -92,7 +92,6 @@ public:
     friend constexpr auto operator==(const AddressV4&, const AddressV4&) -> bool = default;
     friend constexpr auto operator<=>(const AddressV4&, const AddressV4&) = default;
 
-private:
     BytesType m_bytes{};
 };
 }  // namespace zephyr::network
