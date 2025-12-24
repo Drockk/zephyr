@@ -1,8 +1,8 @@
 #include <optional>
 #include <span>
 
-#include <zephyr/plugins/udp/details/protocol.hpp>
-#include <zephyr/plugins/udp/plugin.hpp>
+#include <zephyr/plugins/udpServer/details/protocol.hpp>
+#include <zephyr/plugins/udpServer/UdpServerPlugin.hpp>
 #include <zephyr/zephyr.hpp>
 
 struct EchoController

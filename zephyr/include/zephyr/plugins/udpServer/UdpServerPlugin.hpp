@@ -4,8 +4,8 @@
 #include "zephyr/core/logger.hpp"
 // #include "zephyr/io/ioUringContext.hpp"
 #include "zephyr/network/endpoint.hpp"
-#include "zephyr/plugins/udp/concept.hpp"
-#include "zephyr/plugins/udp/details/protocol.hpp"
+#include "zephyr/plugins/udpServer/details/concept.hpp"
+#include "zephyr/plugins/udpServer/details/protocol.hpp"
 
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "zephyr/plugins/udp/details/protocol.hpp"
+#include "zephyr/plugins/udpServer/details/protocol.hpp"
 
 #include <concepts>
 #include <span>
