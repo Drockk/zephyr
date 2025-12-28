@@ -4,6 +4,7 @@
 #include "zephyr/core/logger.hpp"
 // #include "zephyr/io/ioUringContext.hpp"
 #include "zephyr/network/endpoint.hpp"
+#include "zephyr/network/udpSocket.hpp"
 #include "zephyr/plugins/udpServer/details/concept.hpp"
 #include "zephyr/plugins/udpServer/details/protocol.hpp"
 
@@ -29,11 +30,20 @@
 
 namespace zephyr::plugins::udp
 {
-template <uint16_t PORT, network::AddressV4 ADDRESS, ControllerConcept Controller>
+template <ControllerConcept Controller, uint16_t Port = 0, network::AddressV4 Address = network::AddressV4::any()>
 class Plugin
 {
 public:
-    Plugin() = default;
+    Plugin()
+        : m_logger(core::Logger::createLogger("UDP")),
+          m_socket(m_logger, network::UdpEndpoint{Address, Port})
+    {}
+
+    Plugin(network::UdpEndpoint t_endpoint)
+        : m_logger(core::Logger::createLogger("UDP")),
+          m_socket(m_logger, t_endpoint)
+    {}
+
     Plugin(const Plugin&) = delete;
     Plugin(Plugin&&) = delete;
 
@@ -47,50 +57,23 @@ public:
 
     auto init() -> void
     {
-        m_logger = core::Logger::createLogger("UDP");
-
-        ZEPHYR_LOG_INFO(m_logger, "Starting UDP plugin");
-
-        bindSocket();
+        ZEPHYR_LOG_INFO(m_logger, "Initializing UDP plugin");
+        m_socket.bind();
     }
 
     auto start(stdexec::scheduler auto t_scheduler) -> void
     {
-        receiveLoop(t_scheduler);
+        // receiveLoop(t_scheduler);
     }
 
     auto stop()
     {
         m_isRunning.store(false);
         // m_ioContext->cancel();
-        if (m_socket >= 0) {
-            close(m_socket);
-            m_socket = -1;
-        }
+        m_socket.close();
     }
 
 private:
-    auto bindSocket() -> void
-    {
-        m_socket = socket(AF_INET, SOCK_DGRAM, 0);
-        if (m_socket < 0) {
-            throw std::runtime_error(std::format("Create UDP socket"));
-        }
-
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = ADDRESS.toNetworkOrder();
-        address.sin_port = htons(PORT);
-
-        if (bind(m_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-            close(m_socket);
-            m_socket = -1;
-            throw std::runtime_error(std::format("Cannot bind UDP socket to {}:{}", ADDRESS.toString(), PORT));
-        }
-
-        ZEPHYR_LOG_INFO(m_logger, "Bound {}:{}", ADDRESS.toString(), PORT);
-    }
-
     auto receiveLoop([[maybe_unused]] stdexec::scheduler auto t_scheduler) -> void
     {
         if (m_isRunning.load()) {
@@ -157,8 +140,8 @@ private:
 
     Controller m_controller{};
     // std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
-    int m_socket{-1};
     std::atomic<bool> m_isRunning{false};
     core::Logger::LoggerPtr m_logger;
+    network::UdpSocket m_socket;
 };
 }  // namespace zephyr::plugins::udp

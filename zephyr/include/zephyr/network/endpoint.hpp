@@ -20,6 +20,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+#include "spdlog/fmt/bundled/base.h"
+
 namespace zephyr::network
 {
 template <details::Protocol P>
@@ -228,5 +230,16 @@ struct std::formatter<zephyr::network::Endpoint<P>> : std::formatter<std::string
     auto format(const zephyr::network::Endpoint<P>& t_endpoint, std::format_context& t_ctx) const
     {
         return std::formatter<std::string>::format(t_endpoint.toString(), t_ctx);
+    }
+};
+
+template <zephyr::network::details::Protocol P>
+struct fmt::formatter<zephyr::network::Endpoint<P>>
+{
+    constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
+
+    auto format(const zephyr::network::Endpoint<P>& t_endpoint, fmt::format_context& t_ctx) const
+    {
+        return fmt::format_to(t_ctx.out(), "{}", t_endpoint.toString());
     }
 };
