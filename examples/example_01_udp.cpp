@@ -1,6 +1,9 @@
 #include <optional>
 #include <span>
 
+#include <zephyr/core/application.hpp>
+#include <zephyr/network/addressV4.hpp>
+#include <zephyr/network/endpoint.hpp>
 #include <zephyr/plugins/udpServer/details/protocol.hpp>
 #include <zephyr/plugins/udpServer/UdpServerPlugin.hpp>
 #include <zephyr/zephyr.hpp>
@@ -13,9 +16,8 @@ struct EchoController
     }
 };
 
-using App = zephyr::core::Application<zephyr::plugins::udp::Plugin<EchoController, 5000>>;
-
 int main()
 {
-    return zephyr::core::runApp<App>();
+    return zephyr::core::runApp(zephyr::core::Application{zephyr::plugins::udp::Plugin{
+        zephyr::network::UdpEndpoint{zephyr::network::AddressV4::loopback(), 5000}, EchoController{}}});
 }

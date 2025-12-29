@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -30,35 +31,39 @@
 
 namespace zephyr::plugins::udp
 {
-template <ControllerConcept Controller, uint16_t Port = 0, network::AddressV4 Address = network::AddressV4::any()>
+template <ControllerConcept Controller>
 class Plugin
 {
 public:
-    Plugin()
-        : m_logger(core::Logger::createLogger("UDP")),
-          m_socket(m_logger, network::UdpEndpoint{Address, Port})
-    {}
-
-    Plugin(network::UdpEndpoint t_endpoint)
-        : m_logger(core::Logger::createLogger("UDP")),
-          m_socket(m_logger, t_endpoint)
+    template <typename ControllerArg>
+        requires std::constructible_from<Controller, ControllerArg>
+    explicit Plugin(network::UdpEndpoint t_endpoint, ControllerArg&& t_controller)
+        : m_controller(std::forward<ControllerArg>(t_controller)),
+          m_endpoint(t_endpoint)
     {}
 
     Plugin(const Plugin&) = delete;
-    Plugin(Plugin&&) = delete;
+    Plugin(Plugin&& t_other) noexcept
+        : m_controller(std::move(t_other.m_controller)),
+          m_isRunning(t_other.m_isRunning.load()),
+          m_logger(std::move(t_other.m_logger)),
+          m_endpoint(std::move(t_other.m_endpoint)),
+          m_socket(std::move(t_other.m_socket))
+    {
+        t_other.m_isRunning.store(false);
+    }
 
     Plugin& operator=(const Plugin&) = delete;
-    Plugin& operator=(Plugin&&) = delete;
+    Plugin& operator=(Plugin&&) noexcept = default;
 
-    ~Plugin()
-    {
-        stop();
-    }
+    ~Plugin() = default;
 
     auto init() -> void
     {
+        m_logger = core::Logger::createLogger("UDP");
+        m_socket = network::UdpSocket{m_endpoint};
         ZEPHYR_LOG_INFO(m_logger, "Initializing UDP plugin");
-        m_socket.bind();
+        m_socket->bind(m_logger);
     }
 
     auto start(stdexec::scheduler auto t_scheduler) -> void
@@ -70,7 +75,9 @@ public:
     {
         m_isRunning.store(false);
         // m_ioContext->cancel();
-        m_socket.close();
+        if (m_socket) {
+            m_socket->close();
+        }
     }
 
 private:
@@ -136,12 +143,18 @@ private:
         //                                        reinterpret_cast<uint8_t*>(buffer.data()) + messageLength}};
 
         // return std::make_pair(std::move(packet), clientAddress);
+        return std::nullopt;
     }
 
     Controller m_controller{};
     // std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
     std::atomic<bool> m_isRunning{false};
     core::Logger::LoggerPtr m_logger;
-    network::UdpSocket m_socket;
+    network::UdpEndpoint m_endpoint;
+    std::optional<network::UdpSocket> m_socket;
 };
+
+template <typename ControllerArg>
+Plugin(network::UdpEndpoint, ControllerArg&&) -> Plugin<std::remove_cvref_t<ControllerArg>>;
+
 }  // namespace zephyr::plugins::udp

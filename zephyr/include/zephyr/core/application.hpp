@@ -8,6 +8,8 @@
 
 #include <thread>
 #include <tuple>
+#include <type_traits>
+#include <utility>
 
 namespace zephyr::core
 {
@@ -18,7 +20,14 @@ template <PluginConcept... Plugins>
 class Application
 {
 public:
-    Application() = default;
+    Application()
+        requires(std::is_default_constructible_v<Plugins> && ...)
+    = default;
+
+    template <typename... PluginArgs>
+        requires(sizeof...(PluginArgs) == sizeof...(Plugins))
+    explicit Application(PluginArgs&&... plugins) : m_plugins(std::forward<PluginArgs>(plugins)...)
+    {}
 
     Application(const Application&) = delete;
     Application(const Application&&) = delete;
@@ -80,4 +89,8 @@ private:
     std::tuple<Plugins...> m_plugins{};
     exec::io_uring_context m_context{1024};
 };
+
+template <typename... PluginArgs>
+Application(PluginArgs&&...) -> Application<std::remove_cvref_t<PluginArgs>...>;
+
 }  // namespace zephyr::core

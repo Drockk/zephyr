@@ -2,6 +2,8 @@
 
 #include "zephyr/core/logger.hpp"
 
+#include <utility>
+
 #ifdef NDEBUG
 #    include <iostream>
 #endif
@@ -9,17 +11,16 @@
 namespace zephyr::core
 {
 template <typename AppType>
-int runApp()
+auto runApp(AppType&& t_app)
 {
 #ifdef NDEBUG
     try {
 #endif
         Logger::init();
 
-        AppType app;
-        app.init();
-        app.start();
-        app.stop();
+        t_app.init();
+        t_app.start();
+        t_app.stop();
 
         Logger::shutdown();
 
@@ -34,5 +35,13 @@ int runApp()
 #endif
 
     return 0;
+}
+
+template <typename AppType>
+    requires std::is_default_constructible_v<AppType>
+auto runApp()
+{
+    AppType app{};
+    return runApp(std::move(app));
 }
 }  // namespace zephyr::core
