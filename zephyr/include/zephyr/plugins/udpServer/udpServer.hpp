@@ -7,6 +7,7 @@
 #include "zephyr/plugins/udpServer/details/concept.hpp"
 #include "zephyr/plugins/udpServer/details/protocol.hpp"
 
+#include <exec/linux/io_uring_context.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
@@ -63,7 +64,7 @@ public:
 
     auto start() -> void
     {
-        // receiveLoop();
+        receiveLoop();
     }
 
     auto stop()
@@ -76,11 +77,21 @@ public:
     }
 
 private:
-    auto receiveLoop([[maybe_unused]] stdexec::scheduler auto t_scheduler) -> void
+    auto receiveLoop() -> void
     {
         if (m_isRunning.load()) {
             return;
         }
+
+        auto workflow = stdexec::schedule(*m_strand) | stdexec::then([&]() {
+                            ZEPHYR_LOG_INFO(m_logger, "Zyje");
+                            std::this_thread::sleep_for(std::chrono::seconds(2));
+                        })
+                        | stdexec::then([=]() {
+                              if (m_isRunning.load()) {}
+                          });
+
+        stdexec::start_detached(std::move(workflow));
 
         // auto strandScheduler =
 
@@ -152,6 +163,7 @@ private:
 // Deduction guide for scheduler-agnostic construction
 // When UdpServer is created without a scheduler, use io_uring scheduler for type deduction
 template <typename ControllerArg>
-UdpServer(network::UdpEndpoint, ControllerArg&&) -> UdpServer<std::remove_cvref_t<ControllerArg>, exec::__io_uring::__scheduler>;
+UdpServer(network::UdpEndpoint,
+          ControllerArg&&) -> UdpServer<std::remove_cvref_t<ControllerArg>, exec::__io_uring::__scheduler>;
 
 }  // namespace zephyr::plugins
