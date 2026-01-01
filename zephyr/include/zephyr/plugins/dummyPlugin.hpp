@@ -8,12 +8,12 @@ namespace zephyr::plugins
 {
 struct DummyPlugin
 {
-    static auto init()
+    static auto init(stdexec::scheduler auto /*unused*/)
     {
         std::cout << "Init DummyPlugin\n";
     }
 
-    static auto start(stdexec::scheduler auto)
+    static auto start()
     {
         std::cout << "Start DummyPlugin\n";
     }

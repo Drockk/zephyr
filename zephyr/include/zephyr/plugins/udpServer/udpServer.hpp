@@ -1,6 +1,7 @@
 #pragma once
 
 #include "zephyr/core/logger.hpp"
+#include "zephyr/execution/strandScheduler.hpp"
 #include "zephyr/network/endpoint.hpp"
 #include "zephyr/network/udpSocket.hpp"
 #include "zephyr/plugins/udpServer/details/concept.hpp"
@@ -9,19 +10,11 @@
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
-#include <array>
 #include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <format>
-#include <memory>
+#include <concepts>
 #include <optional>
-#include <stdexcept>
-#include <type_traits>
 #include <unistd.h>
 #include <utility>
-#include <vector>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -29,7 +22,7 @@
 
 namespace zephyr::plugins
 {
-template <udp::ControllerConcept Controller>
+template <udp::ControllerConcept Controller, stdexec::scheduler BaseScheduler>
 class UdpServer
 {
 public:
@@ -43,6 +36,7 @@ public:
     UdpServer(const UdpServer&) = delete;
     UdpServer(UdpServer&& t_other) noexcept
         : m_controller(std::move(t_other.m_controller)),
+          m_strand(std::move(t_other.m_strand)),
           m_isRunning(t_other.m_isRunning.load()),
           m_logger(std::move(t_other.m_logger)),
           m_endpoint(std::move(t_other.m_endpoint)),
@@ -56,17 +50,20 @@ public:
 
     ~UdpServer() = default;
 
-    auto init() -> void
+    auto init(stdexec::scheduler auto t_scheduler) -> void
     {
+        m_strand = execution::StrandScheduler<BaseScheduler>(std::move(t_scheduler));
         m_logger = core::Logger::createLogger("UDP");
         m_socket = network::UdpSocket{m_endpoint};
+
         ZEPHYR_LOG_INFO(m_logger, "Initializing UDP plugin");
+
         m_socket->bind(m_logger);
     }
 
-    auto start(stdexec::scheduler auto t_scheduler) -> void
+    auto start() -> void
     {
-        // receiveLoop(t_scheduler);
+        // receiveLoop();
     }
 
     auto stop()
@@ -145,14 +142,16 @@ private:
     }
 
     Controller m_controller{};
-    // std::shared_ptr<io::IoUringContext> m_ioContext{std::make_shared<io::IoUringContext>()};
+    std::optional<execution::StrandScheduler<BaseScheduler>> m_strand;
     std::atomic<bool> m_isRunning{false};
     core::Logger::LoggerPtr m_logger;
     network::UdpEndpoint m_endpoint;
     std::optional<network::UdpSocket> m_socket;
 };
 
+// Deduction guide for scheduler-agnostic construction
+// When UdpServer is created without a scheduler, use io_uring scheduler for type deduction
 template <typename ControllerArg>
-UdpServer(network::UdpEndpoint, ControllerArg&&) -> UdpServer<std::remove_cvref_t<ControllerArg>>;
+UdpServer(network::UdpEndpoint, ControllerArg&&) -> UdpServer<std::remove_cvref_t<ControllerArg>, exec::__io_uring::__scheduler>;
 
 }  // namespace zephyr::plugins

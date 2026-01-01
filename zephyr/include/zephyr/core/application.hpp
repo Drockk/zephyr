@@ -68,14 +68,13 @@ public:
 private:
     auto initPlugins()
     {
-        std::apply([](auto&... t_elements) { return ((t_elements.init()) && ...); }, m_plugins);
+        auto scheduler = m_context.get_scheduler();
+        std::apply([scheduler](auto&... t_elements) { return ((t_elements.init(scheduler)) && ...); }, m_plugins);
     }
 
     auto startPlugins()
     {
-        std::apply([scheduler = m_context.get_scheduler()](
-                       auto&... t_elements) { return ((t_elements.start(scheduler)) && ...); },
-                   m_plugins);
+        std::apply([](auto&... t_elements) { return ((t_elements.start()) && ...); }, m_plugins);
     }
 
     auto stopPlugins()

@@ -17,7 +17,7 @@ namespace zephyr::network
 UdpSocket::UdpSocket(UdpEndpoint t_endpoint) noexcept : m_endpoint(t_endpoint), m_socket(-1) {}
 
 UdpSocket::UdpSocket(UdpSocket&& t_other) noexcept
-    : m_endpoint(std::move(t_other.m_endpoint)),
+    : m_endpoint(t_other.m_endpoint),
       m_socket(std::exchange(t_other.m_socket, -1))
 {}
 
@@ -25,7 +25,7 @@ auto UdpSocket::operator=(UdpSocket&& t_other) noexcept -> UdpSocket&
 {
     if (this != &t_other) {
         close();
-        m_endpoint = std::move(t_other.m_endpoint);
+        m_endpoint = t_other.m_endpoint;
         m_socket = std::exchange(t_other.m_socket, -1);
     }
     return *this;

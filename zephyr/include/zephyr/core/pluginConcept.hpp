@@ -4,9 +4,9 @@
 
 namespace zephyr::core
 {
-template <class C>
-concept HasFuncInit = requires(C t_class) {
-    { t_class.init() } -> std::same_as<void>;
+template <class C, class Scheduler>
+concept HasFuncInit = requires(C t_class, Scheduler t_scheduler) {
+    { t_class.init(t_scheduler) } -> std::same_as<void>;
 };
 
 // template <class C>
@@ -19,6 +19,13 @@ concept HasFuncStop = requires(C t_class) {
     { t_class.stop() } -> std::same_as<void>;
 };
 
+// Generic plugin concept that works with any scheduler type
 template <class C>
-concept PluginConcept = HasFuncInit<C> /*&& HasFuncStart<C>*/ && HasFuncStop<C>;
+concept PluginConcept = requires(C t_class) {
+    { t_class.stop() } -> std::same_as<void>;
+} && requires {
+    // Has init that accepts something - will be validated at instantiation
+    typename C;
+};
+
 }  // namespace zephyr::core

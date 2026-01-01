@@ -7,6 +7,8 @@
 #include <memory>
 #include <mutex>
 
+#include "stdexec/__detail/__senders_core.hpp"
+
 namespace zephyr::execution
 {
 template <stdexec::scheduler BaseScheduler>
@@ -17,17 +19,17 @@ public:
 
     friend auto tag_invoke(stdexec::schedule_t /*unused*/, const StrandScheduler& t_self)
     {
-        return schedule_sender{t_self.m_state};
+        return ScheduleSender{t_self.m_state};
     }
 
-    friend auto operator==(const StrandScheduler& a, const StrandScheduler& b) noexcept
+    friend auto operator==(const StrandScheduler& t_a, const StrandScheduler& t_b) noexcept
     {
-        return a.m_state == b.m_state;
+        return t_a.m_state == t_b.m_state;
     }
 
-    friend auto operator!=(const StrandScheduler& a, const StrandScheduler& b) noexcept
+    friend auto operator!=(const StrandScheduler& t_a, const StrandScheduler& t_b) noexcept
     {
-        return !(a == b);
+        return !(t_a == t_b);
     }
 
 private:
@@ -82,18 +84,18 @@ private:
 
             task->execute();
 
-            auto self_ptr = this->shared_from_this();
+            auto self = this->shared_from_this();
             auto continuation
-                = stdexec::schedule(base) | stdexec::then([self = std::move(self_ptr)]() { self->executeNext(); });
+                = stdexec::schedule(base) | stdexec::then([self = std::move(self)]() { self->executeNext(); });
 
             stdexec::start_detached(std::move(continuation));
         }
 
         template <typename Receiver>
-        void enqueueTask(Receiver receiver)
+        void enqueueTask(Receiver t_receiver)
         {
             bool shouldStart = false;
-            auto task = std::make_unique<TaskImpl<Receiver>>(std::move(receiver));
+            auto task = std::make_unique<TaskImpl<Receiver>>(std::move(t_receiver));
 
             {
                 std::lock_guard lock(mutex);
@@ -106,9 +108,9 @@ private:
             }
 
             if (shouldStart) {
-                auto self_ptr = this->shared_from_this();
+                auto self = this->shared_from_this();
                 auto starter
-                    = stdexec::schedule(base) | stdexec::then([self = std::move(self_ptr)]() { self->executeNext(); });
+                    = stdexec::schedule(base) | stdexec::then([self = std::move(self)]() { self->executeNext(); });
 
                 stdexec::start_detached(std::move(starter));
             }
@@ -117,29 +119,34 @@ private:
 
     std::shared_ptr<StrandState> m_state;
 
-    struct schedule_sender
+    struct ScheduleSender
     {
         using sender_concept = stdexec::sender_t;
-        using completion_signatures = stdexec::completion_signatures<stdexec::set_value_t()>;
-
+        
         std::shared_ptr<StrandState> state;
 
         template <typename Receiver>
-        struct operation_state
+        struct OperationState
         {
             std::shared_ptr<StrandState> state;
             Receiver receiver;
 
-            friend void tag_invoke(stdexec::start_t /*unused*/, operation_state& t_operation) noexcept
+            friend void tag_invoke(stdexec::start_t /*unused*/, OperationState& t_operation) noexcept
             {
                 t_operation.state->enqueueTask(std::move(t_operation.receiver));
             }
         };
 
         template <typename Receiver>
-        friend auto tag_invoke(stdexec::connect_t /*unused*/, schedule_sender&& t_self, Receiver t_receiver)
+        friend auto tag_invoke(stdexec::connect_t /*unused*/, ScheduleSender&& t_self, Receiver t_receiver)
         {
-            return operation_state<Receiver>{std::move(t_self.state), std::move(t_receiver)};
+            return OperationState<Receiver>{std::move(t_self.state), std::move(t_receiver)};
+        }
+
+        template <typename Env>
+        friend auto tag_invoke(stdexec::get_completion_signatures_t /*unused*/, const ScheduleSender& /*unused*/, const Env&)
+        {
+            return stdexec::completion_signatures<stdexec::set_value_t()>{};
         }
     };
 };
