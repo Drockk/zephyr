@@ -1,8 +1,6 @@
 #pragma once
 
-// #include "zephyr/common/resultSender.hpp"
 #include "zephyr/core/logger.hpp"
-// #include "zephyr/io/ioUringContext.hpp"
 #include "zephyr/network/endpoint.hpp"
 #include "zephyr/network/udpSocket.hpp"
 #include "zephyr/plugins/udpServer/details/concept.hpp"
@@ -29,21 +27,21 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-namespace zephyr::plugins::udp
+namespace zephyr::plugins
 {
-template <ControllerConcept Controller>
-class Plugin
+template <udp::ControllerConcept Controller>
+class UdpServer
 {
 public:
     template <typename ControllerArg>
         requires std::constructible_from<Controller, ControllerArg>
-    explicit Plugin(network::UdpEndpoint t_endpoint, ControllerArg&& t_controller)
+    explicit UdpServer(network::UdpEndpoint t_endpoint, ControllerArg&& t_controller)
         : m_controller(std::forward<ControllerArg>(t_controller)),
           m_endpoint(t_endpoint)
     {}
 
-    Plugin(const Plugin&) = delete;
-    Plugin(Plugin&& t_other) noexcept
+    UdpServer(const UdpServer&) = delete;
+    UdpServer(UdpServer&& t_other) noexcept
         : m_controller(std::move(t_other.m_controller)),
           m_isRunning(t_other.m_isRunning.load()),
           m_logger(std::move(t_other.m_logger)),
@@ -53,10 +51,10 @@ public:
         t_other.m_isRunning.store(false);
     }
 
-    Plugin& operator=(const Plugin&) = delete;
-    Plugin& operator=(Plugin&&) noexcept = default;
+    UdpServer& operator=(const UdpServer&) = delete;
+    UdpServer& operator=(UdpServer&&) noexcept = default;
 
-    ~Plugin() = default;
+    ~UdpServer() = default;
 
     auto init() -> void
     {
@@ -117,7 +115,7 @@ private:
         // stdexec::start_detached(std::move(work));
     }
 
-    auto receive() -> std::optional<std::pair<UdpProtocol::InputType, sockaddr_in>>
+    auto receive() -> std::optional<std::pair<udp::UdpProtocol::InputType, sockaddr_in>>
     {
         // if (!m_isRunning.load()) {
         //     return std::nullopt;
@@ -155,6 +153,6 @@ private:
 };
 
 template <typename ControllerArg>
-Plugin(network::UdpEndpoint, ControllerArg&&) -> Plugin<std::remove_cvref_t<ControllerArg>>;
+UdpServer(network::UdpEndpoint, ControllerArg&&) -> UdpServer<std::remove_cvref_t<ControllerArg>>;
 
-}  // namespace zephyr::plugins::udp
+}  // namespace zephyr::plugins
