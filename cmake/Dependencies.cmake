@@ -5,14 +5,14 @@ include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 CPMAddPackage(
     NAME spdlog
     GITHUB_REPOSITORY gabime/spdlog
-    VERSION 1.16.0
+    VERSION 1.17.0
     OPTIONS
         "SPDLOG_BUILD_SHARED ON"
         "SPDLOG_BUILD_EXAMPLES OFF"
         "SPDLOG_BUILD_TESTS OFF"
 )
 
-CPMAddPackage("gh:catchorg/Catch2@3.11.0")
+CPMAddPackage("gh:catchorg/Catch2@3.12.0")
 
 # Provide Catch2 CMake module and config so catch_discover_tests is available
 if(Catch2_SOURCE_DIR)
