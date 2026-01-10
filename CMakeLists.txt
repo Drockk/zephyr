@@ -61,7 +61,7 @@ include(cmake/Dependencies.cmake)
 add_subdirectory(zephyr)
 
 if(ZEPHYR_BUILD_EXAMPLES)
-    # add_subdirectory(examples)
+    add_subdirectory(examples)
 endif()
 
 if(ZEPHYR_BUILD_TESTS)
