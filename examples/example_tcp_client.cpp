@@ -20,6 +20,7 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -28,6 +29,7 @@
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <zephyr/plugin/details/pluginConcept.hpp>
 
 constexpr const char* SERVER_IP = "127.0.0.1";
 constexpr int SERVER_PORT = 8080;
@@ -428,22 +430,41 @@ private:
     ThreadSafeQueue<IncomingMessage> incoming_queue_;
 };
 
+class TcpClientPlugin
+{
+public:
+    TcpClientPlugin(const char* t_serverIp, int t_serverPort) : m_client(t_serverIp, t_serverPort) {}
+
+    auto init() -> void
+    {
+        std::cout << "=== TCP Client with epoll (Two-Thread Architecture) ===\n\n";
+    }
+    auto run() -> void
+    {
+        if (!m_client.start()) {
+            throw std::runtime_error("Failed to connect to server");
+        }
+    }
+
+    auto stop() -> void
+    {
+        m_client.wait();
+    }
+
+private:
+    TcpClient m_client;
+};
+
 // ============================================================================
 // Main
 // ============================================================================
 int main()
 {
-    std::cout << "=== TCP Client with epoll (Two-Thread Architecture) ===\n\n";
+    zephyr::plugin::PluginConcept auto tcpPlugin = TcpClientPlugin{SERVER_IP, SERVER_PORT};
 
-    TcpClient client(SERVER_IP, SERVER_PORT);
-
-    if (!client.start()) {
-        std::cerr << "Failed to connect to server\n";
-        return 1;
-    }
-
-    // Wait for the client to finish
-    client.wait();
+    tcpPlugin.init();
+    tcpPlugin.run();
+    tcpPlugin.stop();
 
     return 0;
 }

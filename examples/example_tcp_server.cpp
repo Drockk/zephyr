@@ -21,6 +21,7 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -31,6 +32,7 @@
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <zephyr/plugin/details/pluginConcept.hpp>
 
 constexpr int PORT = 8080;
 constexpr int MAX_EVENTS = 64;
@@ -475,18 +477,42 @@ private:
 };
 
 // ============================================================================
+// TCP Plugin
+// ============================================================================
+class TcpServerPlugin
+{
+public:
+    TcpServerPlugin(uint16_t t_port) : m_server(t_port) {}
+
+    auto init() -> void
+    {
+        std::cout << "=== TCP Server with epoll (Two-Thread Architecture) ===\n\n";
+    }
+    auto run() -> void
+    {
+        if (!m_server.start()) {
+            throw std::runtime_error("Failed to start server");
+        }
+    }
+
+    auto stop() -> void
+    {
+        m_server.stop();
+    }
+
+private:
+    TcpServer m_server;
+};
+
+// ============================================================================
 // Main
 // ============================================================================
 int main()
 {
-    std::cout << "=== TCP Server with epoll (Two-Thread Architecture) ===\n\n";
+    zephyr::plugin::PluginConcept auto tcpPlugin = TcpServerPlugin{PORT};
 
-    TcpServer server(PORT);
-
-    if (!server.start()) {
-        std::cerr << "Failed to start server\n";
-        return 1;
-    }
+    tcpPlugin.init();
+    tcpPlugin.run();
 
     std::cout << "\nServer running. Press Ctrl+C to stop...\n";
 
@@ -495,7 +521,7 @@ int main()
 
     pause();
 
-    server.stop();
+    tcpPlugin.stop();
 
     return 0;
 }
