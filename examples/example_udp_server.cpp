@@ -12,6 +12,8 @@
  * Compile: g++ -std=c++20 -pthread -o udp_server example_udp_server.cpp
  */
 
+#include "zephyr/plugin/details/pluginConcept.hpp"
+
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
@@ -21,6 +23,7 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -385,19 +388,41 @@ private:
     ThreadSafeQueue<OutgoingMessage> outgoing_queue_;
 };
 
+class UdpServerPlugin
+{
+public:
+    UdpServerPlugin(uint16_t t_port) : m_server(t_port) {}
+
+    auto init() -> void
+    {
+        std::cout << "=== UDP Server with epoll (Two-Thread Architecture) ===\n\n";
+    }
+
+    auto run() -> void
+    {
+        if (!m_server.start()) {
+            throw std::runtime_error("Failed to start server");
+        }
+    }
+
+    auto stop() -> void
+    {
+        m_server.stop();
+    }
+
+private:
+    UdpServer m_server;
+};
+
 // ============================================================================
 // Main
 // ============================================================================
 int main()
 {
-    std::cout << "=== UDP Server with epoll (Two-Thread Architecture) ===\n\n";
+    zephyr::plugin::PluginConcept auto plugin = UdpServerPlugin{PORT};
 
-    UdpServer server(PORT);
-
-    if (!server.start()) {
-        std::cerr << "Failed to start server\n";
-        return 1;
-    }
+    plugin.init();
+    plugin.run();
 
     std::cout << "\nServer running. Press Ctrl+C to stop...\n";
 
@@ -406,7 +431,7 @@ int main()
 
     pause();
 
-    server.stop();
+    plugin.stop();
 
     return 0;
 }

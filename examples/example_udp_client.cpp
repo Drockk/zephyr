@@ -12,6 +12,8 @@
  * Compile: g++ -std=c++20 -pthread -o udp_client example_udp_client.cpp
  */
 
+#include "zephyr/plugin/details/pluginConcept.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -20,6 +22,7 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -405,22 +408,41 @@ private:
     ThreadSafeQueue<IncomingMessage> incoming_queue_;
 };
 
+class UdpClientPlugin
+{
+public:
+    UdpClientPlugin(const char* t_serverIp, int t_serverPort) : m_client(t_serverIp, t_serverPort) {}
+
+    auto init() -> void
+    {
+        std::cout << "=== UDP Client with epoll (Two-Thread Architecture) ===\n\n";
+    }
+
+    auto run() -> void
+    {
+        if (!m_client.start()) {
+            throw std::runtime_error("Failed to start client");
+        }
+    }
+
+    auto stop() -> void
+    {
+        m_client.wait();
+    }
+
+private:
+    UdpClient m_client;
+};
+
 // ============================================================================
 // Main
 // ============================================================================
 int main()
 {
-    std::cout << "=== UDP Client with epoll (Two-Thread Architecture) ===\n\n";
-
-    UdpClient client(SERVER_IP, SERVER_PORT);
-
-    if (!client.start()) {
-        std::cerr << "Failed to start client\n";
-        return 1;
-    }
-
-    // Wait for the client to finish
-    client.wait();
+    zephyr::plugin::PluginConcept auto client = UdpClientPlugin{SERVER_IP, SERVER_PORT};
+    client.init();
+    client.run();
+    client.stop();
 
     return 0;
 }
