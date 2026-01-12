@@ -12,6 +12,8 @@
  * Compile: g++ -std=c++20 -pthread -o tcp_server example_tcp_server.cpp
  */
 
+#include "zephyr/core/application.hpp"
+
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
@@ -509,6 +511,11 @@ private:
 // ============================================================================
 int main()
 {
+    zephyr::Application app{"TcpServer"};
+    app.init();
+    app.run();
+    app.stop();
+
     zephyr::plugin::PluginConcept auto tcpPlugin = TcpServerPlugin{PORT};
 
     tcpPlugin.init();
