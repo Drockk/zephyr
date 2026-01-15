@@ -12,17 +12,17 @@
  * Compile: g++ -std=c++20 -pthread -o tcp_server example_tcp_server.cpp
  */
 
-#include "zephyr/core/application.hpp"
-
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
+#include <cstddef>
 #include <cstring>
 #include <fcntl.h>
 #include <functional>
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -32,9 +32,11 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <plugins/tcpServer/tcpServer.hpp>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <zephyr/plugin/details/pluginConcept.hpp>
+#include <zephyr/core/application.hpp>
+// #include <zephyr/plugin/details/pluginConcept.hpp>
 
 constexpr int PORT = 8080;
 constexpr int MAX_EVENTS = 64;
@@ -509,26 +511,39 @@ private:
 // ============================================================================
 // Main
 // ============================================================================
+class TcpServerController
+{
+public:
+    auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte>
+    {
+        std::cout << "TcpController\n";
+
+        return {};
+    }
+
+private:
+};
+
 int main()
 {
-    zephyr::Application app{"TcpServer"};
+    zephyr::Application app{"TcpServer", plugins::TcpServer<TcpServerController>{"127.0.0.1", PORT}};
     app.init();
     app.run();
     app.stop();
 
-    zephyr::plugin::PluginConcept auto tcpPlugin = TcpServerPlugin{PORT};
+    // zephyr::plugin::PluginConcept auto tcpPlugin = TcpServerPlugin{PORT};
 
-    tcpPlugin.init();
-    tcpPlugin.run();
+    // tcpPlugin.init();
+    // tcpPlugin.run();
 
-    std::cout << "\nServer running. Press Ctrl+C to stop...\n";
+    // std::cout << "\nServer running. Press Ctrl+C to stop...\n";
 
-    // Wait for Ctrl+C
-    std::signal(SIGINT, [](int) { std::cout << "\nReceived SIGINT, shutting down...\n"; });
+    // // Wait for Ctrl+C
+    // std::signal(SIGINT, [](int) { std::cout << "\nReceived SIGINT, shutting down...\n"; });
 
-    pause();
+    // pause();
 
-    tcpPlugin.stop();
+    // tcpPlugin.stop();
 
     return 0;
 }

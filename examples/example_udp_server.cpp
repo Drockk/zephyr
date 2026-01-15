@@ -419,7 +419,7 @@ private:
 // ============================================================================
 int main()
 {
-    zephyr::plugin::PluginConcept auto plugin = UdpServerPlugin{PORT};
+    auto plugin = UdpServerPlugin{PORT};
 
     plugin.init();
     plugin.run();

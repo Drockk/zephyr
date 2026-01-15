@@ -439,7 +439,7 @@ private:
 // ============================================================================
 int main()
 {
-    zephyr::plugin::PluginConcept auto client = UdpClientPlugin{SERVER_IP, SERVER_PORT};
+    auto client = UdpClientPlugin{SERVER_IP, SERVER_PORT};
     client.init();
     client.run();
     client.stop();

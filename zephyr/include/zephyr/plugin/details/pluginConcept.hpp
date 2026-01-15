@@ -13,7 +13,7 @@ concept HasFuncInit = requires(C t_class) {
 
 template <class C>
 concept HasFuncRun = requires(C t_class) {
-    { t_class.run() } -> std::same_as<void>;  // TODO: Check scheduler concept also
+    { t_class.run() } -> stdexec::sender;  // TODO: Check scheduler concept also
 };
 
 template <class C>

@@ -460,7 +460,7 @@ private:
 // ============================================================================
 int main()
 {
-    zephyr::plugin::PluginConcept auto tcpPlugin = TcpClientPlugin{SERVER_IP, SERVER_PORT};
+    auto tcpPlugin = TcpClientPlugin{SERVER_IP, SERVER_PORT};
 
     tcpPlugin.init();
     tcpPlugin.run();
