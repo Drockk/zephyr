@@ -481,34 +481,6 @@ private:
 };
 
 // ============================================================================
-// TCP Plugin
-// ============================================================================
-class TcpServerPlugin
-{
-public:
-    TcpServerPlugin(uint16_t t_port) : m_server(t_port) {}
-
-    auto init() -> void
-    {
-        std::cout << "=== TCP Server with epoll (Two-Thread Architecture) ===\n\n";
-    }
-    auto run() -> void
-    {
-        if (!m_server.start()) {
-            throw std::runtime_error("Failed to start server");
-        }
-    }
-
-    auto stop() -> void
-    {
-        m_server.stop();
-    }
-
-private:
-    TcpServer m_server;
-};
-
-// ============================================================================
 // Main
 // ============================================================================
 class TcpServerController
@@ -516,9 +488,11 @@ class TcpServerController
 public:
     auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte>
     {
+        std::string text(reinterpret_cast<const char*>(t_message.data()), t_message.size());
         std::cout << "TcpController\n";
+        std::cout << text << "\n";
 
-        return {};
+        return t_message;
     }
 
 private:
@@ -530,20 +504,6 @@ int main()
     app.init();
     app.run();
     app.stop();
-
-    // zephyr::plugin::PluginConcept auto tcpPlugin = TcpServerPlugin{PORT};
-
-    // tcpPlugin.init();
-    // tcpPlugin.run();
-
-    // std::cout << "\nServer running. Press Ctrl+C to stop...\n";
-
-    // // Wait for Ctrl+C
-    // std::signal(SIGINT, [](int) { std::cout << "\nReceived SIGINT, shutting down...\n"; });
-
-    // pause();
-
-    // tcpPlugin.stop();
 
     return 0;
 }

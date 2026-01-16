@@ -1,14 +1,16 @@
 #pragma once
 
+#include "zephyr/core/details/signalHandler.hpp"
 #include "zephyr/plugin/details/pluginConcept.hpp"
 
+#include <exec/static_thread_pool.hpp>
+
+#include <csignal>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <tuple>
-
-#include "exec/static_thread_pool.hpp"
 
 namespace zephyr
 {
@@ -16,16 +18,16 @@ template <plugin::PluginConcept... Plugins>
 class Application
 {
 public:
-    Application(std::string_view t_name, Plugins... t_plugins)
+    Application(std::string_view t_name, Plugins&&... t_plugins)
         : m_name{t_name},
           m_threadPool{std::thread::hardware_concurrency()},
-          m_plugins{std::move(t_plugins)...}
+          m_plugins{std::forward<Plugins>(t_plugins)...}
     {}
 
-    Application(std::string_view t_name, uint32_t t_threadNumber, Plugins... t_plugins)
+    Application(std::string_view t_name, uint32_t t_threadNumber, Plugins&&... t_plugins)
         : m_name{t_name},
           m_threadPool{t_threadNumber},
-          m_plugins{std::move(t_plugins)...}
+          m_plugins{std::forward<Plugins>(t_plugins)...}
     {}
 
     auto init() -> void
@@ -35,44 +37,47 @@ public:
 
     auto run() -> void
     {
-        auto work = runPlugins();
-        stdexec::sync_wait(work);
+        runPlugins();
+
+        details::SignalHandler::instance().wait();
     };
 
     auto stop() -> void
     {
-        if (m_stopped) {
+        if (m_stopped.exchange(true)) {
             return;
         }
 
-        m_threadPool.request_stop();
-
         stopPlugins();
-
-        m_stopped = true;
+        m_threadPool.request_stop();
     };
 
 private:
+    auto setupSignalHandlers()
+    {
+        details::SignalHandler::instance().reset();
+        std::signal(SIGINT, details::signalCallback);
+        std::signal(SIGTERM, details::signalCallback);
+    }
+
     auto initPlugins()
     {
-        std::apply([](auto&... t_elements) { return ((t_elements.init()) && ...); }, m_plugins);
+        std::apply([](auto&... t_elements) { ((t_elements.init()) && ...); }, m_plugins);
     }
 
     auto runPlugins()
     {
-        return std::apply(
-            [this](auto&... t_elements) {
-                return stdexec::when_all(stdexec::on(m_threadPool.get_scheduler(), t_elements.run())...);
-            },
-            m_plugins);
+        std::apply([this](auto&... t_elements) { ((t_elements.run(m_threadPool.get_scheduler())) && ...); }, m_plugins);
+
+        while (m_stopped) {}
     }
 
     auto stopPlugins()
     {
-        std::apply([](auto&... t_elements) { return ((t_elements.stop()) && ...); }, m_plugins);
+        std::apply([](auto&... t_elements) { ((t_elements.stop()) && ...); }, m_plugins);
     }
 
-    bool m_stopped{false};
+    std::atomic<bool> m_stopped{false};
     std::string m_name;
     exec::static_thread_pool m_threadPool;
     std::tuple<Plugins...> m_plugins;
