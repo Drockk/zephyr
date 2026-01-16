@@ -28,7 +28,6 @@ public:
           m_ioPool{std::move(t_other.m_ioPool)},
           m_server{std::move(t_other.m_server)},
           m_buffer{std::move(t_other.m_buffer)},
-          m_shouldStopConnection{t_other.m_shouldStopConnection.load()},
           m_shouldStop{t_other.m_shouldStop.load()}
     {}
 
@@ -39,7 +38,6 @@ public:
             m_ioPool = std::move(t_other.m_ioPool);
             m_server = std::move(t_other.m_server);
             m_buffer = std::move(t_other.m_buffer);
-            m_shouldStopConnection.store(t_other.m_shouldStopConnection.load());
             m_shouldStop.store(t_other.m_shouldStop.load());
         }
         return *this;
@@ -113,7 +111,6 @@ private:
     std::unique_ptr<exec::static_thread_pool> m_ioPool{std::make_unique<exec::static_thread_pool>(1)};
     details::TcpServer m_server;
     std::array<std::byte, 16 * 1024> m_buffer{};
-    std::atomic<bool> m_shouldStopConnection{false};
     std::atomic<bool> m_shouldStop{false};
 };
 }  // namespace plugins
