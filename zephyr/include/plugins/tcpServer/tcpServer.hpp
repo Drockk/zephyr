@@ -72,7 +72,6 @@ public:
                                        [this](size_t t_readLength) -> std::pair<std::span<std::byte>, bool> {
                                            if (t_readLength == 0) {
                                                return {{}, true};
-                                               t
                                            }
                                            auto response = m_controller.onMessage(
                                                std::span<std::byte>(m_buffer.data(), t_readLength));
