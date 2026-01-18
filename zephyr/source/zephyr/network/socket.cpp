@@ -9,19 +9,24 @@
 
 namespace zephyr::network
 {
+Socket::Socket(std::pair<const char*, uint16_t> t_endpoint) : m_endpoint(t_endpoint) {}
+
 auto Socket::create() -> void
 {
-    auto m_fd = socket(AF_INET, SOCK_STREAM, 0);
+    m_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (m_fd < 0) {
         throw std::runtime_error("Cannot create socket");
     }
 }
 
-auto Socket::setOptions() -> void {}  // TODO
-
-auto Socket::bind(std::pair<const char*, uint16_t> t_endpoint) -> void
+auto Socket::setOptions(int32_t t_level, int32_t t_optname, int32_t t_value) const -> void
 {
-    const auto& [address, port] = t_endpoint;
+    setsockopt(m_fd, t_level, t_optname, &t_value, sizeof(t_value));
+}
+
+auto Socket::bind() const -> void
+{
+    const auto& [address, port] = m_endpoint;
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -43,11 +48,19 @@ auto Socket::listen(int32_t t_backlog) -> void
 
 auto Socket::close() -> void
 {
-    ::close(m_fd);
-    m_fd = -1;
+    if (m_fd != -1) {
+        ::close(m_fd);
+        m_fd = -1;
+    }
 }
 
-auto Socket::receive() -> void {}
+auto Socket::receive(std::span<std::byte> t_buffer) const -> ssize_t
+{
+    return ::recv(m_fd, t_buffer.data(), t_buffer.size(), 0);
+}
 
-auto Socket::send() -> void {}
+auto Socket::send(std::span<std::byte> t_buffer) const -> ssize_t
+{
+    return ::send(m_fd, t_buffer.data(), t_buffer.size(), 0);
+}
 }  // namespace zephyr::network
