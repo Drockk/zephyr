@@ -12,7 +12,7 @@
 #include <plugins/tcpServer/tcpServer.hpp>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <zephyr/core/application.hpp>
+#include <zephyr/zephyr.hpp>
 
 class TcpServerController
 {
@@ -31,10 +31,6 @@ private:
 
 int main()
 {
-    zephyr::Application app{"TcpServer", plugins::TcpServer<TcpServerController>{"127.0.0.1", 8080}};
-    app.init();
-    app.run();
-    app.stop();
-
-    return 0;
+    return zephyr::runApplication(
+        zephyr::Application{"TcpServer", plugins::TcpServer<TcpServerController>{"127.0.0.1", 8080}});
 }
