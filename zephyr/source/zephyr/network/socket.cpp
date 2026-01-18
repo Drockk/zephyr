@@ -10,6 +10,7 @@
 namespace zephyr::network
 {
 Socket::Socket(std::pair<const char*, uint16_t> t_endpoint) : m_endpoint(t_endpoint) {}
+Socket::Socket(int32_t t_fd) : m_fd(t_fd) {}
 
 auto Socket::create() -> void
 {
@@ -44,6 +45,11 @@ auto Socket::listen(int32_t t_backlog) -> void
         close();
         throw std::runtime_error("Cannot listen on socket");
     }
+}
+
+auto Socket::accept() const -> int32_t
+{
+    return ::accept(m_fd, nullptr, 0);
 }
 
 auto Socket::close() -> void

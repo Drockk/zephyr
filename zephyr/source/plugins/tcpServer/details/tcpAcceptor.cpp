@@ -14,10 +14,9 @@ auto TcpAcceptor::init() -> void
     m_socket.listen();
 }
 
-auto acceptConnectins() -> void {}
-
 auto TcpAcceptor::stop() -> void
 {
     m_socket.close();
+    m_pool->request_stop();
 }
 }  // namespace plugins::details

@@ -44,10 +44,6 @@ public:
 
     auto stop() -> void
     {
-        if (m_stopped.exchange(true)) {
-            return;
-        }
-
         stopPlugins();
         m_threadPool.request_stop();
     };
@@ -68,8 +64,6 @@ private:
     auto runPlugins()
     {
         std::apply([this](auto&... t_elements) { ((t_elements.run(m_threadPool.get_scheduler())) && ...); }, m_plugins);
-
-        while (m_stopped) {}
     }
 
     auto stopPlugins()
@@ -77,7 +71,6 @@ private:
         std::apply([](auto&... t_elements) { ((t_elements.stop()) && ...); }, m_plugins);
     }
 
-    std::atomic<bool> m_stopped{false};
     std::string m_name;
     exec::static_thread_pool m_threadPool;
     std::tuple<Plugins...> m_plugins;

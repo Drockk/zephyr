@@ -56,7 +56,7 @@ public:
 
     auto run(stdexec::scheduler auto t_scheduler) -> void
     {
-        stdexec::scheduler auto ioScheduler = m_ioPool->get_scheduler();
+        auto serverLoop = m_acceptor.acceptConnections();
 
         // auto serverLoop
         //     = stdexec::just() | stdexec::let_value([this, t_scheduler, ioScheduler] {
@@ -101,7 +101,7 @@ public:
         //       })
         //       | exec::repeat_effect_until();
 
-        // stdexec::start_detached(serverLoop);
+        stdexec::start_detached(serverLoop);
     }
 
     auto stop() -> void
