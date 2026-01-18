@@ -1,10 +1,4 @@
-# =============================================================================
-# Zephyr Examples
-# =============================================================================
-
-add_executable(example_tcp_server example_tcp_server.cpp)
-target_compile_features(example_tcp_server PRIVATE cxx_std_20)
-target_link_libraries(example_tcp_server PRIVATE pthread zephyr::zephyr)
+add_subdirectory("tcp")
 
 add_executable(example_tcp_client example_tcp_client.cpp)
 target_compile_features(example_tcp_client PRIVATE cxx_std_20)
