@@ -7,6 +7,8 @@
 
 #include <memory>
 
+#include "plugins/tcpServer/details/tcpConnection.hpp"
+
 namespace plugins::details
 {
 class TcpAcceptor
@@ -20,7 +22,8 @@ public:
     {
         stdexec::scheduler auto scheduler = m_pool->get_scheduler();
 
-        auto acceptWork = stdexec::just() | stdexec::then([this] { return m_socket.accept(); });
+        auto acceptWork = stdexec::just()
+                          | stdexec::then([this] { return TcpConnection(zephyr::network::Socket{m_socket.accept()}); });
         return stdexec::starts_on(scheduler, acceptWork);
     }
 

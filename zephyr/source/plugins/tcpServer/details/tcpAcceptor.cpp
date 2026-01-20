@@ -1,6 +1,9 @@
 #include "plugins/tcpServer/details/tcpAcceptor.hpp"
 
+#include <utility>
+
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 
 namespace plugins::details
 {

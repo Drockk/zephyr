@@ -13,8 +13,11 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <tuple>
+#include <utility>
 
 #include "plugins/tcpServer/details/tcpAcceptor.hpp"
+#include "plugins/tcpServer/details/tcpConnection.hpp"
 #include "plugins/tcpServer/details/tcpServer.hpp"
 #include "plugins/tcpServer/details/tcpServerControllerConcept.hpp"
 
@@ -56,52 +59,15 @@ public:
 
     auto run(stdexec::scheduler auto t_scheduler) -> void
     {
-        auto serverLoop = m_acceptor.acceptConnections();
+        auto acceptLoop = m_acceptor.acceptConnections()
+                          | stdexec::then([this, t_scheduler](details::TcpConnection t_connection) {
+                                stdexec::start_detached(connectionLoop(t_scheduler, t_connection));
 
-        // auto serverLoop
-        //     = stdexec::just() | stdexec::let_value([this, t_scheduler, ioScheduler] {
-        //           auto acceptWork
-        //               = stdexec::starts_on(ioScheduler, stdexec::just() | stdexec::then([this] { m_server.accept();
-        //               }));
+                                return m_shouldStop.load();
+                            })
+                          | exec::repeat_effect_until();
 
-        //           auto connectionLoop
-        //               = stdexec::just() | stdexec::let_value([this, t_scheduler, ioScheduler] {
-        //                     return stdexec::starts_on(ioScheduler, stdexec::just() | stdexec::then([this] {
-        //                                                                return m_server.receive(m_buffer);
-        //                                                            }))
-        //                            | stdexec::continues_on(t_scheduler)
-        //                            | stdexec::then(
-        //                                [this](size_t t_readLength) -> std::pair<std::span<std::byte>, bool> {
-        //                                    if (t_readLength == 0) {
-        //                                        return {{}, true};
-        //                                    }
-        //                                    auto response = m_controller.onMessage(
-        //                                        std::span<std::byte>(m_buffer.data(), t_readLength));
-        //                                    return {response, false};
-        //                                })
-        //                            | stdexec::continues_on(ioScheduler)
-        //                            | stdexec::then([this](std::pair<std::span<std::byte>, bool> result) {
-        //                                  auto [response, shouldStop] = result;
-        //                                  if (!response.empty()) {
-        //                                      m_server.send(response);
-        //                                  }
-        //                                  return shouldStop || m_shouldStop.load();
-        //                              });
-        //                 })
-        //                 | exec::repeat_effect_until();
-
-        //           return std::move(acceptWork)
-        //                  | stdexec::let_value([connectionLoop = std::move(connectionLoop)]() mutable {
-        //                        return std::move(connectionLoop);
-        //                    })
-        //                  | stdexec::then([this] {
-        //                        m_server.closeClient();
-        //                        return m_shouldStop.load();
-        //                    });
-        //       })
-        //       | exec::repeat_effect_until();
-
-        stdexec::start_detached(serverLoop);
+        stdexec::start_detached(acceptLoop);
     }
 
     auto stop() -> void
@@ -111,6 +77,33 @@ public:
     }
 
 private:
+    auto connectionLoop(stdexec::scheduler auto t_scheduler, details::TcpConnection t_connection)
+    {
+        auto connectionWork
+            = stdexec::just() | stdexec::then([this, t_connection] { return t_connection.receive(m_buffer); })
+              | stdexec::then([this](size_t t_readLength) -> std::pair<std::span<std::byte>, bool> {
+                    if (t_readLength == 0) {
+                        return {{}, true};
+                    }
+
+                    const auto response = m_controller.onMessage(std::span<std::byte>(m_buffer.data(), t_readLength));
+
+                    return {response, false};
+                })
+              | stdexec::then([this, t_connection](std::pair<std::span<std::byte>, bool> t_result) {
+                    const auto [response, shouldStop] = t_result;
+
+                    if (!response.empty()) {
+                        std::ignore = t_connection.send(response);
+                    }
+
+                    return shouldStop || m_shouldStop.load();
+                })
+              | exec::repeat_effect_until();
+
+        return stdexec::starts_on(t_scheduler, connectionWork);
+    }
+
     Controller m_controller{};
     details::TcpAcceptor m_acceptor;
     std::unique_ptr<exec::static_thread_pool> m_ioPool{std::make_unique<exec::static_thread_pool>(1)};
