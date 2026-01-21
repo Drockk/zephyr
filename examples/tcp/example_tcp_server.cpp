@@ -1,17 +1,9 @@
-#include <csignal>
 #include <cstddef>
-#include <cstring>
-#include <fcntl.h>
 #include <iostream>
 #include <span>
 #include <string>
-#include <unistd.h>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <plugins/tcpServer/tcpServer.hpp>
-#include <sys/epoll.h>
-#include <sys/socket.h>
 #include <zephyr/zephyr.hpp>
 
 class TcpServerController
@@ -25,8 +17,6 @@ public:
 
         return t_message;
     }
-
-private:
 };
 
 int main()

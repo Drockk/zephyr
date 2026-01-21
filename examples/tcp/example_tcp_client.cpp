@@ -15,21 +15,25 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <plugins/tcpClient/tcpClient.hpp>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <zephyr/plugin/details/pluginConcept.hpp>
+#include <zephyr/zephyr.hpp>
 
 constexpr const char* SERVER_IP = "127.0.0.1";
 constexpr int SERVER_PORT = 8080;
@@ -435,10 +439,6 @@ class TcpClientPlugin
 public:
     TcpClientPlugin(const char* t_serverIp, int t_serverPort) : m_client(t_serverIp, t_serverPort) {}
 
-    auto init() -> void
-    {
-        std::cout << "=== TCP Client with epoll (Two-Thread Architecture) ===\n\n";
-    }
     auto run() -> void
     {
         if (!m_client.start()) {
@@ -458,13 +458,18 @@ private:
 // ============================================================================
 // Main
 // ============================================================================
+class TcpClientController
+{
+public:
+    auto connectTo() const -> std::pair<const char*, uint16_t>
+    {
+        return {"127.0.0.1", 8080};
+    }
+
+    auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte> {}
+};
+
 int main()
 {
-    auto tcpPlugin = TcpClientPlugin{SERVER_IP, SERVER_PORT};
-
-    tcpPlugin.init();
-    tcpPlugin.run();
-    tcpPlugin.stop();
-
-    return 0;
+    return zephyr::runApplication(zephyr::Application{"TcpClient", plugins::TcpClient<TcpClientController>{}});
 }
