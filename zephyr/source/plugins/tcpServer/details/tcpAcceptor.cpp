@@ -1,5 +1,6 @@
 #include "plugins/tcpServer/details/tcpAcceptor.hpp"
 
+#include <cstdint>
 #include <utility>
 
 #include <arpa/inet.h>
@@ -11,8 +12,10 @@ TcpAcceptor::TcpAcceptor(zephyr::network::Socket&& t_socket) : m_socket(std::mov
 
 auto TcpAcceptor::init() -> void
 {
+    static constexpr int32_t ENABLE{1};
+
     m_socket.create();
-    m_socket.setOptions(SOL_SOCKET, SO_REUSEADDR, 1);
+    m_socket.setOptions(SOL_SOCKET, SO_REUSEADDR, ENABLE);
     m_socket.bind();
     m_socket.listen();
 }

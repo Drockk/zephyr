@@ -18,7 +18,6 @@
 
 #include "plugins/tcpServer/details/tcpAcceptor.hpp"
 #include "plugins/tcpServer/details/tcpConnection.hpp"
-#include "plugins/tcpServer/details/tcpServer.hpp"
 #include "plugins/tcpServer/details/tcpServerControllerConcept.hpp"
 
 namespace plugins
