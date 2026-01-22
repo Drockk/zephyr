@@ -461,10 +461,12 @@ private:
 class TcpClientController
 {
 public:
-    auto connectTo() const -> std::pair<const char*, uint16_t>
+    [[nodiscard]] auto connectTo() const -> std::pair<const char*, uint16_t>
     {
         return {"127.0.0.1", 8080};
     }
+
+    auto onConnect() {}
 
     auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte> {}
 };
