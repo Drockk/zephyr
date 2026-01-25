@@ -1,11 +1,19 @@
 #include "zephyr/network/socket.hpp"
 
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <format>
+#include <span>
 #include <stdexcept>
 #include <unistd.h>
+#include <utility>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 
 namespace zephyr::network
 {
@@ -58,6 +66,27 @@ auto Socket::close() -> void
         ::close(m_fd);
         m_fd = -1;
     }
+}
+
+auto Socket::connect(const std::pair<const char*, uint16_t> t_server) -> void
+{
+    auto [ip, port] = t_server;
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port);
+
+    if (inet_pton(AF_INET, ip, &serverAddr.sin_addr) <= 0) {
+        close();
+        throw std::runtime_error("Invalid address");
+    }
+
+    if (::connect(m_fd, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == -1) {
+        close();
+        throw std::runtime_error(std::format("Connection failed: {}", strerror(errno)));
+    }
+
+    static constexpr int32_t ENABLE{1};
+    setOptions(SOL_SOCKET, SO_REUSEADDR, ENABLE);
 }
 
 auto Socket::receive(std::span<std::byte> t_buffer) const -> ssize_t

@@ -4,7 +4,7 @@
 
 namespace plugins::details
 {
-TcpConnection::TcpConnection(zephyr::network::Socket t_socket) : m_socket(std::move(t_socket)) {}
+TcpConnection::TcpConnection(zephyr::network::Socket&& t_socket) : m_socket(std::move(t_socket)) {}
 
 auto TcpConnection::receive(std::span<std::byte> t_buffer) const -> ssize_t
 {

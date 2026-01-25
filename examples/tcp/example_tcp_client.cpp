@@ -466,7 +466,10 @@ public:
         return {"127.0.0.1", 8080};
     }
 
-    auto onConnect() {}
+    auto onConnect()
+    {
+        std::cout << "TEST\n";
+    }
 
     auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte> {}
 };

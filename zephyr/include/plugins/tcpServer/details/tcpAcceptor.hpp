@@ -23,7 +23,7 @@ public:
         stdexec::scheduler auto scheduler = m_pool->get_scheduler();
 
         auto acceptWork = stdexec::just()
-                          | stdexec::then([this] { return TcpConnection(zephyr::network::Socket{m_socket.accept()}); });
+                          | stdexec::then([this] { return TcpConnection(std::move(zephyr::network::Socket{m_socket.accept()})); });
         return stdexec::starts_on(scheduler, acceptWork);
     }
 

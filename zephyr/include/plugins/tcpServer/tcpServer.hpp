@@ -2,7 +2,7 @@
 
 #include "zephyr/network/socket.hpp"
 
-#include <exec/repeat_effect_until.hpp>
+#include <exec/repeat_until.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
@@ -64,7 +64,7 @@ public:
 
                                 return m_shouldStop.load();
                             })
-                          | exec::repeat_effect_until();
+                          | exec::repeat_until();
 
         stdexec::start_detached(acceptLoop);
     }
@@ -98,7 +98,7 @@ private:
 
                     return shouldStop || m_shouldStop.load();
                 })
-              | exec::repeat_effect_until();
+              | exec::repeat_until();
 
         return stdexec::starts_on(t_scheduler, connectionWork);
     }

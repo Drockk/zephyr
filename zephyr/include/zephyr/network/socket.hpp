@@ -12,6 +12,7 @@ namespace zephyr::network
 class Socket
 {
 public:
+    Socket() = default;
     Socket(std::pair<const char*, uint16_t> t_endpoint);
     Socket(int32_t t_fd);
 
@@ -21,12 +22,13 @@ public:
     auto listen(int32_t t_backlog = 512) -> void;
     [[nodiscard]] auto accept() const -> int32_t;
     auto close() -> void;
+    auto connect(std::pair<const char*, uint16_t> t_server) -> void;
 
     [[nodiscard]] auto receive(std::span<std::byte> t_buffer) const -> ssize_t;
     [[nodiscard]] auto send(std::span<std::byte> t_buffer) const -> ssize_t;
 
 private:
     int32_t m_fd{-1};
-    std::pair<const char*, uint16_t> m_endpoint;
+    std::pair<const char*, uint16_t> m_endpoint{};
 };
 }  // namespace zephyr::network
