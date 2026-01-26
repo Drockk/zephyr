@@ -434,27 +434,6 @@ private:
     ThreadSafeQueue<IncomingMessage> incoming_queue_;
 };
 
-class TcpClientPlugin
-{
-public:
-    TcpClientPlugin(const char* t_serverIp, int t_serverPort) : m_client(t_serverIp, t_serverPort) {}
-
-    auto run() -> void
-    {
-        if (!m_client.start()) {
-            throw std::runtime_error("Failed to connect to server");
-        }
-    }
-
-    auto stop() -> void
-    {
-        m_client.wait();
-    }
-
-private:
-    TcpClient m_client;
-};
-
 // ============================================================================
 // Main
 // ============================================================================
@@ -466,12 +445,16 @@ public:
         return {"127.0.0.1", 8080};
     }
 
-    auto onConnect()
+    auto onConnect() -> std::span<std::byte>
     {
-        std::cout << "TEST\n";
+        static std::string msg = "Hello, Server!";
+        return std::as_writable_bytes(std::span{msg});
     }
 
-    auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte> {}
+    auto onMessage(std::span<std::byte> t_message) -> std::span<std::byte>
+    {
+        return {};
+    }
 };
 
 int main()

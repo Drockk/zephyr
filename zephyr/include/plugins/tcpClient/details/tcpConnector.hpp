@@ -20,15 +20,14 @@ public:
     {
         stdexec::scheduler auto scheduler = m_pool->get_scheduler();
 
-        auto work = stdexec::just(t_endpoint)
-                    | stdexec::then([](const std::pair<const char*, uint16_t> t_serverEndpoint) {
-                          zephyr::network::Socket socket;
-                          socket.create();
-                          socket.connect(t_serverEndpoint);
+        auto work
+            = stdexec::just(t_endpoint) | stdexec::then([](const std::pair<const char*, uint16_t> t_serverEndpoint) {
+                  zephyr::network::Socket socket;
+                  socket.create();
+                  socket.connect(t_serverEndpoint);
 
-                          return TcpConnection(std::move(socket));
-                      })
-                    | stdexec::then([](details::TcpConnection t_connection) {});
+                  return TcpConnection(std::move(socket));
+              });
 
         return stdexec::starts_on(scheduler, work);
     }
