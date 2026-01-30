@@ -1,3 +1,4 @@
+// zephyr/include/plugins/tcpServer/details/tcpAcceptor.hpp
 #pragma once
 
 #include "zephyr/network/socket.hpp"
@@ -20,11 +21,8 @@ public:
 
     auto acceptConnections() -> stdexec::sender auto
     {
-        stdexec::scheduler auto scheduler = m_pool->get_scheduler();
-
-        auto acceptWork = stdexec::just()
-                          | stdexec::then([this] { return TcpConnection(std::move(zephyr::network::Socket{m_socket.accept()})); });
-        return stdexec::starts_on(scheduler, acceptWork);
+        return stdexec::transfer_just(m_pool->get_scheduler())
+               | stdexec::then([this] { return TcpConnection(zephyr::network::Socket{m_socket.accept()}); });
     }
 
     auto stop() -> void;
