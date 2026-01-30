@@ -38,7 +38,7 @@ public:
         : m_controller{std::move(t_other.m_controller)},
           m_acceptor{std::move(t_other.m_acceptor)},
           m_ioPool{std::move(t_other.m_ioPool)},
-          m_connectionScope{std::move(t_other.m_connectionScope)},  // unique_ptr jest movable
+          m_connectionScope{std::move(t_other.m_connectionScope)},
           m_buffer{std::move(t_other.m_buffer)},
           m_shouldStop{t_other.m_shouldStop.load()}
     {}
@@ -111,7 +111,7 @@ private:
     Controller m_controller{};
     details::TcpAcceptor m_acceptor;
     std::unique_ptr<exec::static_thread_pool> m_ioPool{std::make_unique<exec::static_thread_pool>(1)};
-    std::unique_ptr<exec::async_scope> m_connectionScope;  // ← unique_ptr zamiast bezpośrednio
+    std::unique_ptr<exec::async_scope> m_connectionScope;
     std::array<std::byte, 16 * 1024> m_buffer{};
     std::atomic<bool> m_shouldStop{false};
 };
